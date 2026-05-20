@@ -27,7 +27,8 @@
           just
 
           # Linters / static analysis
-          cfn-lint           # for examples/**/template.yaml validation
+          # cfn-lint lives under python3Packages in nixpkgs (it is a Python tool).
+          python3Packages.cfn-lint   # for examples/**/template.yaml validation
 
           # AWS / GitHub tooling
           awscli2
