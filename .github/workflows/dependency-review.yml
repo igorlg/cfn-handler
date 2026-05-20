@@ -1,0 +1,36 @@
+name: dependency-review
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  dependency-review:
+    name: review dependencies
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+
+      - name: Run dependency review
+        uses: actions/dependency-review-action@bc41886e18ea39df68b1b1245f4184881938e050 # v4.7.2
+        with:
+          comment-summary-in-pr: on-failure
+          fail-on-scopes: runtime
+          # Allow only OSI-approved licenses we'd actually want for runtime deps.
+          allow-licenses: >-
+            Apache-2.0,
+            MIT,
+            BSD-2-Clause,
+            BSD-3-Clause,
+            ISC,
+            Python-2.0,
+            MPL-2.0,
+            CC0-1.0,
+            Unlicense,
+            0BSD

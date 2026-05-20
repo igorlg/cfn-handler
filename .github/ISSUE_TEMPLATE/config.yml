@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Question or discussion
+    url: https://github.com/igorlg/cfn-handler/discussions
+    about: Use Discussions for usage questions, ideas, and general talk.
+  - name: Security issue (private)
+    url: https://github.com/igorlg/cfn-handler/security/advisories/new
+    about: Privately report a security vulnerability via GitHub Security Advisories.

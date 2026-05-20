@@ -1,0 +1,68 @@
+name: Bug report
+description: Report a defect in cfn-handler
+title: 'Bug: '
+labels: [bug, triage]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug report!
+        Please fill out as much of the form below as you can; the more we
+        know, the faster we can fix it.
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+      description: What did you expect to happen?
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behaviour
+      description: What actually happened? Include error messages or stack traces.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Minimal code or commands that trigger the bug.
+      render: python
+    validations:
+      required: true
+  - type: input
+    id: cfn-handler-version
+    attributes:
+      label: cfn-handler version
+      placeholder: 'e.g. 1.0.0'
+    validations:
+      required: true
+  - type: dropdown
+    id: python-version
+    attributes:
+      label: Python version
+      options:
+        - '3.10'
+        - '3.11'
+        - '3.12'
+        - '3.13'
+        - '3.14'
+        - 'other (specify in repro)'
+    validations:
+      required: true
+  - type: dropdown
+    id: runtime
+    attributes:
+      label: Where does this run?
+      options:
+        - AWS Lambda (Python runtime)
+        - Local (unit test / SAM-local)
+        - Other (specify in repro)
+    validations:
+      required: true
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else?
+      description: Logs, screenshots, configuration, related issues, ...

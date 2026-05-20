@@ -1,0 +1,106 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+# Cancel superseded PR runs to save CI minutes; never cancel main-branch runs.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  # Cache and venv may live on different filesystems under `act`; copying
+  # silences the noisy hardlink warning and is fine for our small dep set.
+  UV_LINK_MODE: copy
+
+jobs:
+  test:
+    name: test (py${{ matrix.python }} / ${{ matrix.runner }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+        python: ['3.10', '3.11', '3.12', '3.13', '3.14']
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+
+      # Workaround: under `act`, JS-action post steps run via `docker exec`
+      # with a stripped PATH that doesn't include the acttoolcache dir where
+      # Node lives. Real GH-hosted runners are unaffected.
+      - name: act compat — expose node on standard PATH
+        if: env.ACT == 'true'
+        run: |
+          set -eu
+          NODE_BIN=$(find /opt/acttoolcache/node -name node -type f -executable 2>/dev/null | head -1)
+          if [ -n "$NODE_BIN" ] && [ ! -e /usr/local/bin/node ]; then
+            ln -sf "$NODE_BIN" /usr/local/bin/node
+          fi
+          node --version
+
+      - name: Install uv with Python ${{ matrix.python }}
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          python-version: ${{ matrix.python }}
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --locked --only-group test
+
+      - name: Run tests with coverage
+        run: uv run pytest --cov --cov-report=xml --cov-report=term
+
+      - name: Upload coverage to Codecov
+        if: matrix.runner == 'ubuntu-24.04' && matrix.python == '3.12'
+        uses: codecov/codecov-action@75cd11691c0faa626561e295848008c8a7dddffe # v5
+        with:
+          files: ./coverage.xml
+          fail_ci_if_error: false
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
+  lint:
+    name: lint + typecheck
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+
+      - name: act compat — expose node on standard PATH
+        if: env.ACT == 'true'
+        run: |
+          set -eu
+          NODE_BIN=$(find /opt/acttoolcache/node -name node -type f -executable 2>/dev/null | head -1)
+          if [ -n "$NODE_BIN" ] && [ ! -e /usr/local/bin/node ]; then
+            ln -sf "$NODE_BIN" /usr/local/bin/node
+          fi
+          node --version
+
+      - name: Install uv with Python 3.12
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          python-version: '3.12'
+          enable-cache: true
+
+      - name: Install lint dependencies
+        run: uv sync --locked --only-group lint
+
+      - name: Ruff check
+        run: uv run ruff check src tests examples
+
+      - name: Ruff format --check
+        run: uv run ruff format src tests examples --check
+
+      - name: mypy strict
+        run: uv run mypy src/cfn_handler
+
+      - name: pyright strict
+        run: uv run pyright src/cfn_handler
+
+      - name: cfn-lint over examples
+        run: uvx cfn-lint examples/**/template.yaml

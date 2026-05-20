@@ -1,0 +1,14 @@
+{
+  "RequestType": "Delete",
+  "ServiceToken": "arn:aws:lambda:us-east-1:123456789012:function:test-cr",
+  "ResponseURL": "https://example.com/cfn-response/delete",
+  "StackId": "arn:aws:cloudformation:us-east-1:123456789012:stack/test-stack/abc-def-ghi",
+  "RequestId": "delete-request-id-0001",
+  "LogicalResourceId": "TestResource",
+  "PhysicalResourceId": "test-stack-TestResource-ABCD1234-create00",
+  "ResourceType": "Custom::TestResource",
+  "ResourceProperties": {
+    "ServiceToken": "arn:aws:lambda:us-east-1:123456789012:function:test-cr",
+    "Foo": "baz"
+  }
+}

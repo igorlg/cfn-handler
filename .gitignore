@@ -1,0 +1,57 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+*.egg
+.eggs/
+build/
+dist/
+wheels/
+.installed.cfg
+*.manifest
+*.spec
+
+# Virtualenvs
+.venv/
+venv/
+env/
+.env/
+
+# Tooling caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.pyright/
+.tox/
+.nox/
+
+# Coverage
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+.cache/
+
+# uv
+# uv.lock is committed; the venv is not.
+
+# Nix
+result
+result-*
+
+# Editors
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Local working dirs
+tmp/
+scratch/
+
+# act (local GH Actions runner)
+.actrc.local
+.act-cache/

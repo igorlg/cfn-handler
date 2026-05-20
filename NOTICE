@@ -1,0 +1,10 @@
+cfn-handler
+Copyright 2026 Igor Lopes Gomes.
+
+This product includes software derived from the Custom Resource Helper
+project (https://github.com/aws-cloudformation/custom-resource-helper),
+Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+
+The original Custom Resource Helper is licensed under the Apache License,
+Version 2.0. The cfn-handler project is also licensed under the Apache
+License, Version 2.0. See the LICENSE file for the full license text.

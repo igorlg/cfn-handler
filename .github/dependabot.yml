@@ -1,0 +1,40 @@
+version: 2
+
+updates:
+  # Python dependencies (uv lockfile)
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    target-branch: main
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: chore
+      include: scope
+    groups:
+      dev-dependencies:
+        patterns:
+          - 'ruff'
+          - 'mypy'
+          - 'pyright'
+          - 'pytest*'
+          - 'hypothesis'
+          - 'moto*'
+          - 'coverage'
+          - 'boto3*'
+
+  # GitHub Actions
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: chore
+      include: scope
+    groups:
+      github-actions:
+        patterns:
+          - '*'

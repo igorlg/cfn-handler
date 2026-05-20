@@ -1,0 +1,49 @@
+schema: spec-driven
+
+context: |
+  Project: cfn-handler
+  Purpose: Modern CloudFormation Custom Resource lifecycle handler for AWS Lambda
+  License: Apache-2.0
+  Inspired by: aws-cloudformation/custom-resource-helper (also Apache-2.0)
+  Repo: https://github.com/igorlg/cfn-handler
+
+  Tech stack:
+  - Python >=3.10, packaged with hatchling (PEP 621)
+  - uv for environment + lockfile management
+  - pytest + hypothesis for testing (target: 95% line + branch coverage)
+  - ruff for lint + format (line-length 120)
+  - mypy strict + pyright strict (dual type-checker)
+  - just for task runner
+  - Nix flake (flake-parts) for reproducible dev shell
+  - GitHub Actions for CI; release-please + PyPI Trusted Publishing for releases
+
+  Conventions:
+  - src/ layout: src/cfn_handler/
+  - py.typed marker; inline types only (no .pyi stubs)
+  - Privacy via folder placement (_internal/), not _module.py prefix
+  - Public API: minimal __all__ in __init__.py; everything else internal
+  - Conventional Commits (feat/fix/chore/docs/refactor/ci); release-please drives SemVer
+  - Branch-per-PR; squash-merge for release-note hygiene
+  - All third-party GH Actions SHA-pinned (enforced via secure-workflows.yml)
+  - Per-job least-privilege permissions in workflows
+
+  Style preferences (from author):
+  - CLEAN, functional patterns; explicit over clever
+  - Rust-influenced error handling (explicit error paths, Result/Option-style)
+  - Readability over performance unless profiled
+  - No trivial dependencies; ecosystem conventions but pragmatic
+  - TDD: tests first, fail, then implement
+  - Detailed explanations with rationale in comments and commit messages
+
+rules:
+  proposal:
+    - State why this change exists in business/user terms first.
+    - List non-goals explicitly.
+    - Cross-reference upstream issues by number when reusing fixes.
+  design:
+    - Name every public surface and document its contract (signature + invariants).
+    - Document trade-offs with at least one rejected alternative.
+  tasks:
+    - Each task must be independently verifiable (a command can prove it done).
+    - Order tasks so each step leaves the repo in a green state when feasible.
+    - Group tasks by phase; phase headings match the PRD plan structure.

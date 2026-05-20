@@ -1,0 +1,6 @@
+schema: spec-driven
+created: 2026-05-20
+goal: Ship a properly engineered Python library for CFN Custom Resource
+  lifecycle handling on AWS Lambda, with all best-practice tooling (uv, ruff,
+  mypy+pyright, pytest+hypothesis, GH Actions w/ Trusted Publishing, Nix flake)
+  wired in from the start
