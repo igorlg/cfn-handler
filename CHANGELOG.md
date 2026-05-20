@@ -8,6 +8,13 @@ This project is maintained automatically with
 [release-please](https://github.com/googleapis/release-please) — entries below
 v1.0.0 are bot-managed.
 
+## [1.1.0](https://github.com/igorlg/cfn-handler/compare/v1.0.0...v1.1.0) (2026-05-20)
+
+
+### Features
+
+* initial release (inspired by aws-cloudformation/custom-resource-helper) ([a0184b4](https://github.com/igorlg/cfn-handler/commit/a0184b4dcfd1b5ab8fe73ee7a86b6c734d9b382d))
+
 ## [1.0.0] — 2026-05-20
 
 ### Added
