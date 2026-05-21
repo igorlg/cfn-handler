@@ -109,6 +109,54 @@ test-matrix-amd64: _check-act
 test-matrix-arm64: _check-act
     act -j test --container-architecture linux/arm64 --matrix runner:ubuntu-24.04-arm
 
+# Run every GH Actions job that gates merging a PR to main (Dependabot vet).
+#
+# Sequential, fail-fast. Skipped: dependency-review.yml (needs PR context
+# that act can't synthesize). Requires `act` and an authenticated `gh` CLI.
+#
+# Steps (each on a fresh container):
+#   1. secure-workflows.yml — re-validate SHA pinning of every action.
+#      ~5s. Catches tag-pinned or annotated-tag-SHA bumps.
+#   2. release.yml `release-please` job — exercise release-please-action
+#      against the real GitHub API. ~10s. Catches the "release.yml runs
+#      only on push to main, never tested by PR CI" gap.
+#   3. ci.yml — full matrix (amd64 + arm64) + lint+typecheck. ~3-5 min.
+#   4. codeql.yml — Python security-and-quality scan. ~1-8 min (slower
+#      on first run while CodeQL bundle downloads).
+gha-pre-release: _check-act _check-gh-token
+    #!/usr/bin/env bash
+    set -uo pipefail
+
+    common_flags=(
+      --container-architecture linux/amd64
+      --secret GITHUB_TOKEN="$(gh auth token)"
+    )
+
+    echo "==> [1/4] secure-workflows.yml — SHA-pin enforcement"
+    act push -W .github/workflows/secure-workflows.yml "${common_flags[@]}" \
+        --action-cache-path /tmp/act-cache-secure-workflows \
+        || { echo; echo "FAIL: secure-workflows.yml"; exit 1; }
+
+    echo
+    echo "==> [2/4] release.yml — release-please-action dry-run (real GH API)"
+    act push -W .github/workflows/release.yml "${common_flags[@]}" --job release-please \
+        --action-cache-path /tmp/act-cache-release-please \
+        || { echo; echo "FAIL: release.yml release-please job"; exit 1; }
+
+    echo
+    echo "==> [3/4] ci.yml — full matrix (amd64 + arm64) + lint+typecheck"
+    just test-matrix \
+        || { echo; echo "FAIL: ci.yml matrix"; exit 1; }
+
+    echo
+    echo "==> [4/4] codeql.yml — Python security analysis"
+    act push -W .github/workflows/codeql.yml "${common_flags[@]}" \
+        --action-cache-path /tmp/act-cache-codeql \
+        || { echo; echo "FAIL: codeql.yml"; exit 1; }
+
+    echo
+    echo "OK: all gating jobs passed locally. Safe to merge."
+
 # ---- OpenSpec ------------------------------------------------------------
 
 # List active OpenSpec changes.
@@ -138,3 +186,6 @@ clean:
 
 _check-act:
     @command -v act >/dev/null || { echo 'error: act not installed. Install with: brew install act'; exit 1; }
+
+_check-gh-token:
+    @gh auth token >/dev/null 2>&1 || { echo 'error: gh CLI not authenticated. Run: gh auth login'; exit 1; }
