@@ -44,7 +44,7 @@
 - [x] 6.2 Igor: in the GitHub UI for `igorlg/cfn-handler`, Settings → Environments → New environment → name `layer-publisher`. No protection rules (PR-only releases gate it; protection rules would block release-please's bot).
 - [x] 6.3 Igor: in the `layer-publisher` environment, add a secret named `LAYER_PUBLISHER_ROLE_ARN` with the ARN value from 6.1.
 - [x] 6.4 Igor: confirm the OIDC provider exists in the AWS account: `aws iam list-open-id-connect-providers`. If the CFN deployed it (first-time setup), it's there. If a previous OIDC provider already existed, the CFN template imports it cleanly.
-- [ ] 6.5 Igor: **(after merging this PR)** re-deploy the CFN stack to drop the now-unused SSM IAM policy: `aws cloudformation deploy --stack-name cfn-handler-layer-publisher --template-file layer/iam-publisher.cfn.yaml --capabilities CAPABILITY_NAMED_IAM --region us-east-1` (idempotent; the diff is just removing the SSM `WriteCfnHandlerSsmParameters` policy). Verify with `aws iam get-role-policy --role-name cfn-handler-layer-publisher --policy-name WriteCfnHandlerSsmParameters` returns `NoSuchEntity`.
+- [x] 6.5 Igor: **(after merging this PR)** re-deploy the CFN stack to drop the now-unused SSM IAM policy: `aws cloudformation deploy --stack-name cfn-handler-layer-publisher --template-file layer/iam-publisher.cfn.yaml --capabilities CAPABILITY_NAMED_IAM --region us-east-1` (idempotent; the diff is just removing the SSM `WriteCfnHandlerSsmParameters` policy). Verify with `aws iam get-role-policy --role-name cfn-handler-layer-publisher --policy-name WriteCfnHandlerSsmParameters` returns `NoSuchEntity`.
 
 ## 7. Cloud CI on the PR
 
@@ -54,22 +54,22 @@
 
 ## 8. Merge + first release
 
-- [ ] 8.1 Squash-merge the PR. Title format: `feat(layer): publish Lambda Layer ...`. The `feat:` triggers a minor bump in the next release-please PR.
-- [ ] 8.2 Merge the resulting release-please PR. Watch `release.yml` end-to-end:
+- [x] 8.1 Squash-merge the PR. Title format: `feat(layer): publish Lambda Layer ...`. The `feat:` triggers a minor bump in the next release-please PR.
+- [x] 8.2 Merge the resulting release-please PR. Watch `release.yml` end-to-end:
    - `release-please` ✓
    - `publish-artifacts` ✓ (existing wheel/sdist + new layer ZIP attached to GH Release)
    - `publish-pypi` ✓ (existing PyPI publish)
    - `build-layer-zip` ✓ (new)
    - `publish-layer` × 17 regions, all ✓ (new; `fail-fast: false` so partial failure is tolerated)
    - `aggregate-arns` ✓ (new; runs `if: always()`; uploads `layer-arns.json` and edits release body)
-- [ ] 8.3 Verify a published layer: `aws lambda get-layer-version --layer-name cfn-handler --version-number 1 --region us-east-1` returns the layer; `aws lambda get-layer-version-policy --layer-name cfn-handler --version-number 1 --region us-east-1` shows the public read grant.
-- [ ] 8.4 Verify the public discovery surfaces:
+- [x] 8.3 Verify a published layer: `aws lambda get-layer-version --layer-name cfn-handler --version-number 1 --region us-east-1` returns the layer; `aws lambda get-layer-version-policy --layer-name cfn-handler --version-number 1 --region us-east-1` shows the public read grant.
+- [x] 8.4 Verify the public discovery surfaces:
    - GH Release body at `https://github.com/igorlg/cfn-handler/releases/tag/v<version>` shows the "Lambda Layer ARNs" table.
    - `curl -fsSL https://github.com/igorlg/cfn-handler/releases/latest/download/layer-arns.json` returns valid JSON with `version`, `layer_name`, `regions` keys.
    - README badge on the GitHub repo page renders the Layer version label correctly.
-- [ ] 8.5 Smoke test from a fresh AWS principal (any account): `aws lambda get-layer-version --layer-name <ARN-from-release-table> --region us-east-1` succeeds without `AccessDenied`. Confirms public read.
+- [x] 8.5 Smoke test from a fresh AWS principal (any account): `aws lambda get-layer-version --layer-name <ARN-from-release-table> --region us-east-1` succeeds without `AccessDenied`. Confirms public read. (Validated end-to-end via real Lambda invoke from account 718758479978 → publisher 484537290172; SHA-256 byte-identical us-east-1 == ap-southeast-2 == GH Release ZIP.)
 
 ## 9. Validate + archive
 
 - [x] 9.1 `openspec validate publish-lambda-layer --strict` passes before merging the PR.
-- [ ] 9.2 After PR + first release ship: `openspec archive publish-lambda-layer`. The new requirements merge into a fresh `openspec/specs/lambda-layer-publishing/spec.md`.
+- [x] 9.2 After PR + first release ship: `openspec archive publish-lambda-layer`. The new requirements merge into a fresh `openspec/specs/lambda-layer-publishing/spec.md`.
