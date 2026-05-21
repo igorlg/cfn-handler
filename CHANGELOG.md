@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.0](https://github.com/igorlg/cfn-handler/compare/v1.0.0...v1.1.0) (2026-05-21)
+
+
+### Features
+
+* gha-pre-release recipe, .actrc, and docs/CI.md ([#7](https://github.com/igorlg/cfn-handler/issues/7)) ([7652596](https://github.com/igorlg/cfn-handler/commit/76525962668ad7b724fc3b6f7859521a7aee4363))
+
 ## 1.0.0 (2026-05-21)
 
 
