@@ -3,19 +3,18 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-    flake-parts.url = "github:hercules-ci/flake-parts";
-    flake-parts.inputs.nixpkgs-lib.follows = "nixpkgs";
   };
 
   outputs =
-    inputs@{ flake-parts, ... }:
-    flake-parts.lib.mkFlake { inherit inputs; } {
+    { nixpkgs, ... }:
+    let
       systems = [
         "aarch64-darwin"
         "x86_64-darwin"
         "aarch64-linux"
         "x86_64-linux"
       ];
+      forAllSystems = nixpkgs.lib.genAttrs systems;
 
       # Default dev shell for cfn-handler contributors.
       #
@@ -33,60 +32,64 @@
       # Then:
       #   uv sync --all-groups
       #   just test
-      perSystem =
-        { pkgs, ... }:
-        {
-          devShells.default = pkgs.mkShellNoCC {
-            name = "cfn-handler-dev";
+      mkDevShell =
+        system:
+        let
+          pkgs = nixpkgs.legacyPackages.${system};
+        in
+        pkgs.mkShellNoCC {
+          name = "cfn-handler-dev";
 
-            packages = with pkgs; [
-              # Python ecosystem
-              uv
-              python312          # baseline for type-checking; uv handles 3.10–3.14 matrix.
+          packages = with pkgs; [
+            # Python ecosystem
+            uv
+            python312          # baseline for type-checking; uv handles 3.10–3.14 matrix.
 
-              # Task runner
-              just
+            # Task runner
+            just
 
-              # Python linters/typecheckers (ruff, mypy, pyright, cfn-lint)
-              # are managed via the `lint` dependency-group in pyproject.toml
-              # so they are version-pinned via uv.lock for both Nix and
-              # non-Nix users.
+            # Python linters/typecheckers (ruff, mypy, pyright, cfn-lint)
+            # are managed via the `lint` dependency-group in pyproject.toml
+            # so they are version-pinned via uv.lock for both Nix and
+            # non-Nix users.
 
-              # AWS / GitHub tooling
-              awscli2
-              gh
+            # AWS / GitHub tooling
+            awscli2
+            gh
 
-              # Local CI (matches `just test-matrix`)
-              act
+            # Local CI (matches `just test-matrix`)
+            act
 
-              # Container runtime needed by act on Linux. macOS contributors
-              # already have Docker Desktop or OrbStack installed; on Linux
-              # the `docker` package + `dockerd` running is required.
-              # docker  # uncomment if your host is NixOS without docker installed
+            # Container runtime needed by act on Linux. macOS contributors
+            # already have Docker Desktop or OrbStack installed; on Linux
+            # the `docker` package + `dockerd` running is required.
+            # docker  # uncomment if your host is NixOS without docker installed
 
-              # Utilities
-              jq
-              nodejs_20          # required by act for JS-action steps
-            ];
+            # Utilities
+            jq
+            nodejs_20          # required by act for JS-action steps
+          ];
 
-            shellHook = ''
-              echo ""
-              echo "  cfn-handler dev shell"
-              echo "  ────────────────────────────────────────"
-              echo "  uv:        $(uv --version)"
-              echo "  just:      $(just --version)"
-              echo "  python:    $(python3 --version)"
-              echo "  gh:        $(gh --version | head -1)"
-              echo "  act:       $(act --version 2>/dev/null | head -1 || echo not found)"
-              echo ""
-              echo "  Python tools (ruff, mypy, pyright, cfn-lint) come from uv:"
-              echo "    uv sync --all-groups"
-              echo ""
-              echo "  Quickstart:  uv sync --all-groups && just test"
-              echo "  Recipes:     just --list"
-              echo ""
-            '';
-          };
+          shellHook = ''
+            echo ""
+            echo "  cfn-handler dev shell"
+            echo "  ────────────────────────────────────────"
+            echo "  uv:        $(uv --version)"
+            echo "  just:      $(just --version)"
+            echo "  python:    $(python3 --version)"
+            echo "  gh:        $(gh --version | head -1)"
+            echo "  act:       $(act --version 2>/dev/null | head -1 || echo not found)"
+            echo ""
+            echo "  Python tools (ruff, mypy, pyright, cfn-lint) come from uv:"
+            echo "    uv sync --all-groups"
+            echo ""
+            echo "  Quickstart:  uv sync --all-groups && just test"
+            echo "  Recipes:     just --list"
+            echo ""
+          '';
         };
+    in
+    {
+      devShells = forAllSystems (system: { default = mkDevShell system; });
     };
 }
