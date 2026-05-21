@@ -179,7 +179,7 @@ The `main` branch SHALL have a branch protection rule enabled with the following
 Additional protection settings:
 - `strict: true` — require branches up-to-date before merge
 - `enforce_admins: false` — admin bypass allowed for releases and emergencies
-- `required_pull_request_reviews: null` — no review requirement (solo dev pattern; would self-block PRs)
+- `required_pull_request_reviews: { required_approving_review_count: 0 }` — require a PR (so direct pushes from non-admins are rejected) without requiring review approvals (would self-block solo-dev PRs). The field MUST be a non-null object; setting `null` would disable the PR-required rule entirely
 - `required_linear_history: true` — matches the squash-merge convention; disallows merge commits
 - `allow_force_pushes: false`
 - `allow_deletions: false`
