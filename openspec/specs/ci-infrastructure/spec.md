@@ -83,7 +83,7 @@ CI SHALL install dependencies via `uv sync --frozen --only-group <group>` rather
 
 #### Scenario: A contributor adds a new runtime dependency without re-locking
 - **WHEN** a PR adds a dependency to `pyproject.toml` but does not include the resulting `uv.lock` change
-- **THEN** CI does not catch this (a known tradeoff of `--frozen`); the contributor is responsible per `CONTRIBUTING.md`. The PR review process is the gate.
+- **THEN** CI does not catch this (a known tradeoff of `--frozen`); the contributor is responsible per `.github/CONTRIBUTING.md`. The PR review process is the gate.
 
 ### Requirement: Codecov upload from a single matrix entry
 
