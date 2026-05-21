@@ -265,16 +265,32 @@ jobs:
           version_number=$(echo "$arn" | awk -F: '{print $NF}')
 
           echo "Granting public read on version ${version_number}..."
-          # add-layer-version-permission fails if the statement-id already
-          # exists. Treat that as success (idempotent re-runs).
-          aws lambda add-layer-version-permission \
+          # add-layer-version-permission is only idempotent for the
+          # ResourceConflictException case (statement-id already exists on
+          # this layer version). All OTHER errors — throttling, permission,
+          # service errors — must fail the job, otherwise we'd publish a
+          # layer ARN without the public read grant and the job would
+          # falsely report green while the user-facing API breaks.
+          set +e
+          add_output=$(aws lambda add-layer-version-permission \
             --region "$REGION" \
             --layer-name cfn-handler \
             --version-number "$version_number" \
             --statement-id PublicRead \
             --action lambda:GetLayerVersion \
-            --principal '*' \
-            >/dev/null 2>&1 || echo "  (PublicRead already granted; idempotent)"
+            --principal '*' 2>&1)
+          add_exit=$?
+          set -e
+
+          if [[ $add_exit -eq 0 ]]; then
+            echo "  public read granted"
+          elif echo "$add_output" | grep -q 'ResourceConflictException'; then
+            echo "  (PublicRead already granted; idempotent)"
+          else
+            echo "ERROR: failed to grant public read on ${REGION} layer version ${version_number} (exit ${add_exit}):" >&2
+            echo "$add_output" >&2
+            exit 1
+          fi
 
           # Emit per-region artifact for the aggregate-arns job.
           mkdir -p artifacts
