@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.0](https://github.com/igorlg/cfn-handler/compare/v1.1.1...v1.2.0) (2026-05-21)
+
+
+### Features
+
+* **layer:** publish Lambda Layer to GitHub Releases and ~17 commercial regions ([#15](https://github.com/igorlg/cfn-handler/issues/15)) ([88321d0](https://github.com/igorlg/cfn-handler/commit/88321d0d887660e09878c123d169ed197d06481d))
+
 ## [1.1.1](https://github.com/igorlg/cfn-handler/compare/v1.1.0...v1.1.1) (2026-05-21)
 
 
