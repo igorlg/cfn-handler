@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "cfn-handler"
-version = "0.0.0"
+version = "1.0.0"
 description = "Modern CloudFormation Custom Resource lifecycle handler for AWS Lambda"
 readme = "README.md"
 license = "Apache-2.0"
