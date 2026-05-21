@@ -127,7 +127,7 @@ Permissions:
 
 Resource scoping ensures the role can only touch `cfn-handler*` named layers and `/cfn-handler/*` SSM parameters; no escape hatch into the broader account. CloudFormation template `layer/iam-publisher.cfn.yaml` codifies this.
 
-### D4 — SSM parameter naming convention
+### D4 — SSM parameter naming convention (maintainer-operational, not user-facing)
 
 ```
 /cfn-handler/<region>/layer-arn/latest          ← string param, holds the most recent ARN
@@ -136,7 +136,9 @@ Resource scoping ensures the role can only touch `cfn-handler*` named layers and
 
 Tier: `Standard` (free up to 10,000 params). Type: `String` (no SecureString needed; ARNs are public).
 
-Considered: `/cfn-handler/<region>/<version>/layer-arn` — slightly cleaner read pattern (`aws ssm get-parameter --name /cfn-handler/us-east-1/v1.1.2/layer-arn`). Rejected because users typically want "the latest version in this region", which fits naturally as `/cfn-handler/<region>/layer-arn/latest`. The chosen pattern colocates `latest` and version-specific siblings.
+**Important — these are NOT the user-facing discovery surface.** SSM parameters live in the maintainer's AWS account; they are not readable from other accounts without cross-account SSM sharing infrastructure (Resource Access Manager / AWS Identity Center setup), which is explicitly out of scope. The parameters serve as the maintainer's **operational record** of what was published where — useful for future cleanup tooling, dashboards, or canary verification. User-facing ARN discovery happens via the surfaces in D10.
+
+Considered: `/cfn-handler/<region>/<version>/layer-arn` — slightly cleaner read pattern. Rejected because the `latest` pointer fits naturally as a sibling under `layer-arn/`. The chosen pattern colocates `latest` and version-specific siblings.
 
 ### D5 — Public read access via `lambda:AddLayerVersionPermission`
 
@@ -197,6 +199,63 @@ The CFN template, the GitHub environment, and the secret all need to be created 
 4. Push a `feat:` or `fix:` commit; release-please opens the next release PR; merge it; observe the per-region publish jobs.
 
 Idempotent: re-deploying the CFN template is a no-op; rotating the role ARN is one CFN update.
+
+### D10 — User-facing ARN discovery (three public surfaces)
+
+Users in other AWS accounts cannot read the maintainer's SSM parameters (D4 is operational only). Three public surfaces let users discover ARNs without AWS credentials or cross-account trust:
+
+**1. GitHub Release body augmentation (primary).** The `aggregate-arns` job, after all per-region publishes complete, edits the GitHub Release notes via `gh release edit --notes-file -` to append a per-region ARN markdown table:
+
+```markdown
+## Lambda Layer ARNs
+
+| Region | ARN |
+|---|---|
+| us-east-1 | `arn:aws:lambda:us-east-1:<account>:layer:cfn-handler:<n>` |
+| us-east-2 | `arn:aws:lambda:us-east-2:<account>:layer:cfn-handler:<n>` |
+| ... |
+```
+
+Anyone landing on `https://github.com/igorlg/cfn-handler/releases/tag/v<version>` sees ARNs at a glance.
+
+**2. `layer-arns.json` release asset (programmatic).** Same job uploads a structured manifest:
+
+```json
+{
+  "version": "1.2.0",
+  "layer_name": "cfn-handler",
+  "regions": {
+    "us-east-1": "arn:aws:lambda:us-east-1:<account>:layer:cfn-handler:N",
+    "us-east-2": "arn:aws:lambda:us-east-2:<account>:layer:cfn-handler:N",
+    ...
+  }
+}
+```
+
+Fetch via `curl -L https://github.com/igorlg/cfn-handler/releases/latest/download/layer-arns.json` for "always latest" or pin a specific version with `…/releases/download/v1.2.0/layer-arns.json`.
+
+**3. shields.io badge (visual signal).** README adds:
+
+```markdown
+[![Lambda Layer](https://img.shields.io/github/v/release/igorlg/cfn-handler?label=lambda%20layer&color=ff9900&logo=amazonaws)](https://github.com/igorlg/cfn-handler/releases/latest)
+```
+
+Uses the GitHub-native release endpoint (no custom server, no extra infrastructure). Updates automatically on every release. Color matches AWS orange. Click-through goes to the latest release page where the ARN table lives.
+
+Considered: a committed `layer/arns.json` file updated via automated PR after each release. Rejected — adds a workflow that opens a PR per release; brittle. The release-asset approach delivers the same JSON without the PR ceremony.
+
+Considered: a region-count badge (`shields.io/badge/regions-17-blue`). Rejected — low signal; users care about whether their region is covered, not the count. The README's "Lambda Layer" section names the regions explicitly.
+
+### Aggregate-arns job mechanics
+
+Per-region `publish-layer` jobs each upload a small artifact (`arn-<region>.json` containing `{"region": "...", "arn": "..."}`) via `actions/upload-artifact`. The `aggregate-arns` job depends on `publish-layer` (so it runs after the matrix completes), uses `actions/download-artifact` to gather every per-region artifact, builds the consolidated `layer-arns.json`, generates the markdown table, then:
+
+```bash
+gh release upload v$VERSION layer-arns.json --clobber
+gh release edit v$VERSION --notes "$(cat existing-notes)\n\n## Lambda Layer ARNs\n\n$(cat arns-table.md)"
+```
+
+`if: always()` on the aggregate job so partial-region success still produces an inventory of what DID publish.
 
 ## Risks / Trade-offs
 

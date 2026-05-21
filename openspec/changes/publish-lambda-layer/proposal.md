@@ -14,9 +14,13 @@ A published Lambda Layer is the idiomatic alternative: the maintainer publishes 
 
 - **NEW** Lambda Layer ZIP (`cfn_handler-X.Y.Z-layer.zip`) attached to every GitHub Release alongside the wheel and sdist. Pure-Python, zero-dep, layout-compatible with all supported Python versions and architectures.
 - **NEW** Public read-access Lambda Layer published to ~30 commercial AWS regions on every release, named `cfn-handler`. Users reference `arn:aws:lambda:<region>:<igorlg-account-id>:layer:cfn-handler:<version>`.
-- **NEW** Per-region SSM parameters under `/cfn-handler/<region>/`:
-  - `/cfn-handler/<region>/layer-arn/latest` — pointer to the most recent ARN; users wanting "always latest" reference this.
-  - `/cfn-handler/<region>/layer-arn/<version>` — pointer to a specific version's ARN; users wanting reproducibility pin to this.
+- **NEW** ARN inventory surfaces for user discovery (no AWS credentials required):
+  - **Augmented GitHub Release body** — each release's notes are extended with a per-region ARN table immediately after the layer publishes complete. Browsing the GH release at `https://github.com/igorlg/cfn-handler/releases/tag/v<version>` shows every ARN at a glance.
+  - **`layer-arns.json` release asset** — structured JSON manifest (region → ARN) uploaded as a release asset on every release. Programmatic consumption: `curl -L https://github.com/igorlg/cfn-handler/releases/latest/download/layer-arns.json`.
+  - **Shields.io badge in `README.md`** — uses GitHub-native release endpoint to render the current Layer version inline with the existing PyPI / Python / License badges.
+- **NEW** Per-region SSM parameters under `/cfn-handler/<region>/` in the **maintainer's** AWS account. **Not** the user-facing discovery mechanism — these are an operational record of what was published where. Users in other accounts cannot read them without cross-account SSM sharing infrastructure (out of scope; the public surfaces above cover the user need).
+  - `/cfn-handler/<region>/layer-arn/latest`
+  - `/cfn-handler/<region>/layer-arn/v<version>`
 
 ### Repository (maintainer-facing)
 
@@ -27,13 +31,14 @@ A published Lambda Layer is the idiomatic alternative: the maintainer publishes 
   - `layer/regions.txt` — canonical list of regions the Layer is published to. One region per line, sorted, comments allowed. Sourced directly by the release.yml matrix.
 - **MODIFIED** `.github/workflows/release.yml`:
   - New job `build-layer-zip` runs after `release-please` succeeds. Builds the layer ZIP and uploads it to the GitHub Release.
-  - New job `publish-layer` runs after `build-layer-zip`. Per-region matrix: assume role via OIDC → publish layer version → grant public read → write SSM parameters. `fail-fast: false` so a single bad region doesn't block the others.
+  - New job `publish-layer` runs after `build-layer-zip`. Per-region matrix: assume role via OIDC → publish layer version → grant public read → write SSM parameters → upload an ARN-stub artifact for the aggregate step. `fail-fast: false` so a single bad region doesn't block the others.
+  - New job `aggregate-arns` runs after `publish-layer` completes. Downloads the per-region ARN artifacts, builds `layer-arns.json`, uploads it as a release asset, and edits the GitHub Release body to append a per-region ARN markdown table.
 - **NEW** GitHub repository environment `layer-publisher` (created via UI / API as part of the rollout). Holds the `LAYER_PUBLISHER_ROLE_ARN` secret. Bound by the OIDC trust policy.
 
 ### Documentation
 
-- **MODIFIED** `docs/CI.md` — Workflow inventory adds the new layer jobs; brief paragraph in the Release pipeline section pointing readers at `layer/README.md` for layer-specific operational detail.
-- **MODIFIED** `README.md` — short section under "Installation" introducing the layer option alongside `pip install`.
+- **MODIFIED** `docs/CI.md` — Workflow inventory adds the new layer jobs (`build-layer-zip`, `publish-layer`, `aggregate-arns`); brief paragraph in the Release pipeline section pointing readers at `layer/README.md` for layer-specific operational detail.
+- **MODIFIED** `README.md` — short "Lambda Layer" section under "Installation" introducing the layer option alongside `pip install`; new shields.io badge for current Layer version inline with the existing badges.
 
 ### Non-goals
 

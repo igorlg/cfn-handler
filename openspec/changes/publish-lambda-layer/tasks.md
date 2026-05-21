@@ -15,14 +15,16 @@
 - [ ] 2.3 In `publish-layer`: download the layer ZIP from the GitHub Release; assume the role via `aws-actions/configure-aws-credentials@<sha>` with `role-to-assume: ${{ secrets.LAYER_PUBLISHER_ROLE_ARN }}` and `aws-region: ${{ matrix.region }}`; invoke `aws lambda publish-layer-version` with `--layer-name cfn-handler --license-info Apache-2.0 --description 'cfn-handler ${VERSION}' --zip-file fileb://cfn_handler-${VERSION}-layer.zip --compatible-runtimes python3.10 python3.11 python3.12 python3.13 python3.14 --compatible-architectures x86_64 arm64`; capture the resulting `LayerVersionArn`.
 - [ ] 2.4 In `publish-layer`: invoke `aws lambda add-layer-version-permission --layer-name cfn-handler --version-number <N> --statement-id PublicRead --action lambda:GetLayerVersion --principal '*'`. Verify the policy was applied via `aws lambda get-layer-version-policy`.
 - [ ] 2.5 In `publish-layer`: invoke `aws ssm put-parameter --name /cfn-handler/${{ matrix.region }}/layer-arn/latest --value <ARN> --type String --overwrite` and `aws ssm put-parameter --name /cfn-handler/${{ matrix.region }}/layer-arn/v${VERSION} --value <ARN> --type String` (no overwrite for version-specific; idempotent on repeated runs only if the ARN matches).
-- [ ] 2.6 Set `strategy.fail-fast: false` on the `publish-layer` matrix so a single bad region does not cancel the rest.
-- [ ] 2.7 SHA-pin every action used in the new jobs (`aws-actions/configure-aws-credentials`, etc.) with `# vX.Y.Z` comments. `secure-workflows.yml` will re-validate on the PR.
+- [ ] 2.6 In `publish-layer`: write `arn-${{ matrix.region }}.json` containing `{"region": "${{ matrix.region }}", "arn": "<ARN>"}` and upload it via `actions/upload-artifact@<sha>` with `name: layer-arns-${{ matrix.region }}` for the aggregate step to consume.
+- [ ] 2.7 Set `strategy.fail-fast: false` on the `publish-layer` matrix so a single bad region does not cancel the rest.
+- [ ] 2.8 Add a new job `aggregate-arns`, `needs: [release-please, publish-layer]`, gated on `release_created == 'true'`, with `if: always()` so partial-region success still produces an inventory. `permissions: contents: write`. Steps: download all `layer-arns-*` artifacts via `actions/download-artifact`; read each region's JSON; build a consolidated `layer-arns.json` (`{ "version": "${VERSION}", "layer_name": "cfn-handler", "regions": { "us-east-1": "<ARN>", ... } }`); build a markdown table `arns-table.md` (regions sorted alphabetically; failed regions noted explicitly); upload `layer-arns.json` as a release asset via `gh release upload v${VERSION} layer-arns.json --clobber`; append the markdown table to the release notes via `gh release view v${VERSION} --json body | jq -r .body > existing-notes.md && printf '\n\n## Lambda Layer ARNs\n\n' >> existing-notes.md && cat arns-table.md >> existing-notes.md && gh release edit v${VERSION} --notes-file existing-notes.md`.
+- [ ] 2.9 SHA-pin every action used in the new jobs (`aws-actions/configure-aws-credentials`, `actions/upload-artifact`, `actions/download-artifact`) with `# vX.Y.Z` comments. `secure-workflows.yml` will re-validate on the PR.
 
 ## 3. Docs
 
-- [ ] 3.1 Update `docs/CI.md` "Workflow inventory" section: `release.yml` row's "Jobs" column gains `build-layer-zip` and `publish-layer (matrix over regions)`.
-- [ ] 3.2 Update `docs/CI.md` "Release pipeline" section: add a brief paragraph describing the layer publish as a parallel post-release surface alongside PyPI publish; link to `layer/README.md` for usage and `layer/MAINTAINER.md` for operational detail.
-- [ ] 3.3 Update `README.md` "Installation" section: add a short paragraph introducing the layer option as an alternative to `pip install`; link to `layer/README.md`.
+- [ ] 3.1 Update `docs/CI.md` "Workflow inventory" section: `release.yml` row's "Jobs" column gains `build-layer-zip`, `publish-layer (matrix over regions)`, and `aggregate-arns`.
+- [ ] 3.2 Update `docs/CI.md` "Release pipeline" section: add a brief paragraph describing the layer publish as a parallel post-release surface alongside PyPI publish; explain the three public ARN discovery surfaces (release body table, `layer-arns.json` asset, shields badge); link to `layer/README.md` for usage and `layer/MAINTAINER.md` for operational detail.
+- [ ] 3.3 Update `README.md` "Installation" section: add a short paragraph introducing the layer option as an alternative to `pip install`; link to `layer/README.md`. Add a shields.io badge for the current Layer version (`https://img.shields.io/github/v/release/igorlg/cfn-handler?label=lambda%20layer&color=ff9900&logo=amazonaws`) inline with the existing PyPI / Python / License badges, linking to the latest GitHub Release page.
 
 ## 4. Local verification (before push)
 
@@ -58,9 +60,14 @@
    - `publish-pypi` ✓ (existing PyPI publish)
    - `build-layer-zip` ✓ (new)
    - `publish-layer` × 17 regions, all ✓ (new; `fail-fast: false` so partial failure is tolerated)
+   - `aggregate-arns` ✓ (new; runs `if: always()`; uploads `layer-arns.json` and edits release body)
 - [ ] 8.3 Verify a published layer: `aws lambda get-layer-version --layer-name cfn-handler --version-number 1 --region us-east-1` returns the layer; `aws lambda get-layer-version-policy --layer-name cfn-handler --version-number 1 --region us-east-1` shows the public read grant.
 - [ ] 8.4 Verify SSM parameters: `aws ssm get-parameter --name /cfn-handler/us-east-1/layer-arn/latest` returns the new ARN; `aws ssm get-parameter --name /cfn-handler/us-east-1/layer-arn/v<version>` returns the same.
-- [ ] 8.5 Smoke test from a fresh AWS principal (any account): `aws lambda get-layer-version --layer-name <ARN-from-SSM> --region us-east-1` succeeds without `AccessDenied`. Confirms public read.
+- [ ] 8.5 Verify the public discovery surfaces:
+   - GH Release body at `https://github.com/igorlg/cfn-handler/releases/tag/v<version>` shows the "Lambda Layer ARNs" table.
+   - `curl -fsSL https://github.com/igorlg/cfn-handler/releases/latest/download/layer-arns.json` returns valid JSON with `version`, `layer_name`, `regions` keys.
+   - README badge on the GitHub repo page renders the Layer version label correctly.
+- [ ] 8.6 Smoke test from a fresh AWS principal (any account): `aws lambda get-layer-version --layer-name <ARN-from-release-table> --region us-east-1` succeeds without `AccessDenied`. Confirms public read.
 
 ## 9. Validate + archive
 

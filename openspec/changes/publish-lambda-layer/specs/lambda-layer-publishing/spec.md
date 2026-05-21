@@ -38,9 +38,9 @@ For every region listed in `layer/regions.txt`, every successful release SHALL p
 - **WHEN** `regions.txt` is read
 - **THEN** no `us-gov-*` or `cn-*` regions appear (different IAM partition and OIDC audience handling; deferred)
 
-### Requirement: SSM parameter ARN discovery per region
+### Requirement: SSM parameter ARN record (maintainer-operational)
 
-For every successful per-region publish, the workflow SHALL write two SSM Parameter Store parameters in that region recording the layer ARN.
+For every successful per-region publish, the workflow SHALL write two SSM Parameter Store parameters in that region recording the layer ARN. These parameters live in the maintainer's AWS account and are NOT a user-facing discovery mechanism — users in other accounts cannot read them without cross-account SSM sharing. They serve as the maintainer's operational record of what was published where; user-facing discovery uses the surfaces in the next requirement.
 
 The naming convention is:
 
@@ -49,13 +49,41 @@ The naming convention is:
 
 Both parameters are `Standard` tier, `String` type, in the maintainer's AWS account.
 
-#### Scenario: A user looks up the latest layer ARN in their region
-- **WHEN** a user runs `aws ssm get-parameter --name /cfn-handler/us-east-1/layer-arn/latest --region us-east-1`
-- **THEN** the response is the maintainer's account's most recent `cfn-handler` layer ARN in `us-east-1`
+#### Scenario: Maintainer queries the latest ARN in their account
+- **WHEN** the maintainer (with appropriate IAM trust to their AWS account) runs `aws ssm get-parameter --name /cfn-handler/us-east-1/layer-arn/latest --region us-east-1`
+- **THEN** the response is the most recent `cfn-handler` layer ARN in `us-east-1`
 
-#### Scenario: A user pins to a specific version's ARN
-- **WHEN** a user runs `aws ssm get-parameter --name /cfn-handler/us-east-1/layer-arn/v1.1.2 --region us-east-1`
-- **THEN** the response is the layer ARN that was published when `cfn-handler 1.1.2` released
+#### Scenario: A user in a different AWS account tries to read the SSM parameter
+- **WHEN** an external user without trust to the maintainer's account runs the same `aws ssm get-parameter` call against the maintainer's account
+- **THEN** the call fails with `AccessDenied`; the user must use the public discovery surfaces instead (GitHub Release body, `layer-arns.json` asset, or shields badge)
+
+### Requirement: Public ARN discovery via GitHub Release surfaces
+
+After every successful release, every per-region ARN published SHALL be discoverable by external users via at least three public surfaces that require no AWS credentials:
+
+1. The GitHub Release body for `v<version>` SHALL contain a per-region ARN markdown table. The table SHALL be appended to the existing release-please-generated notes by an `aggregate-arns` workflow job after all `publish-layer` matrix entries complete (whether successful or failed).
+2. A release asset named `layer-arns.json` SHALL be uploaded to the GitHub Release. Its content SHALL be a JSON object with at minimum: `version` (string), `layer_name` (string, currently `cfn-handler`), and `regions` (object mapping each region name to its ARN string). Failed regions SHALL appear with an explanatory `null` value or be omitted.
+3. The README SHALL contain a shields.io badge using the GitHub-native release endpoint (`https://img.shields.io/github/v/release/<owner>/<repo>?label=lambda%20layer`). The badge SHALL link to the latest GitHub Release page.
+
+#### Scenario: User browses to the GitHub Release for a version
+- **WHEN** a user opens `https://github.com/igorlg/cfn-handler/releases/tag/v<version>` in a browser
+- **THEN** the release notes contain a "Lambda Layer ARNs" section with a markdown table listing every region that successfully published, alongside its full ARN
+
+#### Scenario: User fetches the JSON manifest for the latest release
+- **WHEN** a user runs `curl -fsSL https://github.com/igorlg/cfn-handler/releases/latest/download/layer-arns.json`
+- **THEN** the response is a valid JSON document with `version`, `layer_name`, and `regions` fields populated
+
+#### Scenario: User pins to a specific version's manifest
+- **WHEN** a user runs `curl -fsSL https://github.com/igorlg/cfn-handler/releases/download/v<version>/layer-arns.json`
+- **THEN** the response is the manifest for that specific version
+
+#### Scenario: README badge reflects the latest published version
+- **WHEN** a user views the README on GitHub or PyPI
+- **THEN** the "lambda layer" badge displays the latest GitHub release tag (e.g. `v1.2.0`); clicking it lands on the release page where the ARN table is visible
+
+#### Scenario: Aggregate runs even with partial-region failures
+- **WHEN** one or more `publish-layer` matrix entries fail
+- **THEN** `aggregate-arns` still runs (it has `if: always()`); the GitHub Release body is augmented with the table of regions that DID succeed; failed regions are listed in the notes with their failure mode
 
 ### Requirement: OIDC-federated IAM role for the publisher
 
