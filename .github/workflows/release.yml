@@ -19,11 +19,34 @@ jobs:
       release_created: ${{ steps.release.outputs.release_created }}
       tag_name: ${{ steps.release.outputs.tag_name }}
     steps:
+      # Mint a short-lived installation token from the dedicated GitHub App.
+      # Why: workflow runs created via the default GITHUB_TOKEN are
+      # deliberately blocked by GitHub from triggering downstream workflow
+      # runs (anti-recursion). That meant release-please's release PRs
+      # never had `pull_request` checks run against them, blocking merges
+      # behind required status checks. Using a GitHub App's installation
+      # token sidesteps the recursion-guard: PRs opened by the App
+      # trigger workflows normally.
+      #
+      # The token is scoped to this repository, expires in ~1 hour, and
+      # is fresh on every workflow run (no long-lived secret stored). The
+      # App's private key is the only credential at rest; rotating it is
+      # a one-line `gh secret set` away.
+      #
+      # See layer/MAINTAINER.md (or docs/CI.md) for App setup steps.
+      - name: Mint App installation token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.RELEASE_PLEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_PLEASE_PRIVATE_KEY }}
+
       - uses: googleapis/release-please-action@5c625bfb5d1ff62eadeeb3772007f7f66fdcf071 # v4
         id: release
         with:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+          token: ${{ steps.app-token.outputs.token }}
 
   # Build the wheel + sdist exactly once and share via a workflow artifact.
   # Three downstream jobs consume it (publish-artifacts, publish-pypi,
