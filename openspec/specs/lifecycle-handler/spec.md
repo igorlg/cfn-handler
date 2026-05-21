@@ -95,15 +95,21 @@ If a registered handler raises any exception that is not specifically handled by
 - **WHEN** any handler completes
 - **THEN** exactly one HTTP `PUT` request is issued to `event["ResponseURL"]` with `Content-Type: ""` (per CFN signed-URL contract) and a body that is the JSON-encoded response payload
 
-### Requirement: Final response always sent
+### Requirement: Final response always sent per CFN flow
 
-`CustomResource` SHALL guarantee that exactly one response is sent to CloudFormation per invocation, even when handler code raises, registers a poll, or itself attempts to send a response. Multiple responses or no response SHALL be considered a defect.
+`CustomResource` SHALL guarantee that exactly one response is sent to CloudFormation per CFN custom-resource flow. A "flow" is the initial lifecycle invocation plus any subsequent poll re-invocations triggered when a poll handler is registered. Sending zero responses (CloudFormation hangs on the stack) or sending more than one response is a defect.
 
-#### Scenario: Handler raises before completing
-- **WHEN** the handler raises an exception
-- **THEN** exactly one response is sent (a FAILED response with the exception text)
+When a poll handler is registered for the request type being dispatched, the initial lifecycle invocation SHALL defer the response and return without responding to CloudFormation; the response is sent only after polling concludes (see the `polling` capability for the deferred-response contract and re-invocation semantics).
 
-#### Scenario: Handler completes without raising
-- **WHEN** the handler returns normally
-- **THEN** exactly one response is sent (a SUCCESS response)
+#### Scenario: Handler raises and no poll handler is registered
+- **WHEN** the lifecycle handler raises an exception and no matching poll handler is registered
+- **THEN** exactly one FAILED response is sent on this invocation, with the exception text as `Reason`
+
+#### Scenario: Handler completes normally and no poll handler is registered
+- **WHEN** the lifecycle handler returns normally and no matching poll handler is registered
+- **THEN** exactly one SUCCESS response is sent on this invocation
+
+#### Scenario: Lifecycle handler completes and a poll handler is registered
+- **WHEN** the lifecycle handler returns normally and a matching poll handler exists
+- **THEN** no response is sent on this invocation; the response is deferred to polling completion (see `polling` capability)
 

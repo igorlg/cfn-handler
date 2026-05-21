@@ -51,13 +51,19 @@ CloudFormation truncates response `Reason` fields at a known limit (currently 40
 - **WHEN** the failure reason is 5000 characters
 - **THEN** the response `Reason` field is at most 4096 characters and ends with `"..."`
 
-### Requirement: Init-time failures send FAILED response with diagnostics
+### Requirement: Init-failure escape hatch via `init_failure(error)`
 
-If an exception is raised during `CustomResource` instantiation or at module-import time before any handler can run, the library SHALL still attempt to send a FAILED response when a CloudFormation event is later received, including a reason that mentions the init-time error and (where possible) the originating module/file. This ensures CloudFormation does not hang waiting on a response from a Lambda that failed before becoming responsive.
+`CustomResource` SHALL expose an `init_failure(error)` method for users to record cold-start / module-load errors that they catch themselves. Once an error is recorded via `init_failure`, every subsequent invocation SHALL immediately send a FAILED response to CloudFormation referencing that error, without invoking any registered handler. This lets users whose module-level setup code can fail (database connections, secret retrieval, configuration parsing) wrap their setup in `try/except` and report the failure to CloudFormation cleanly rather than letting the Lambda hang.
 
-#### Scenario: Module-level error during cold start
-- **WHEN** the user's Lambda code raises during import (before `CustomResource` is fully constructed) and a CFN event is received
-- **THEN** a FAILED response is sent referencing the init-time error
+NOTE: This requirement covers only failures the user explicitly catches and reports. If user code raises uncaught during module import, AWS Lambda's runtime fails to import the module and the handler is never invoked; the library has no opportunity to run, let alone respond. That scenario is between AWS Lambda's invocation lifecycle and CloudFormation's `ResponseURL` timeout (~1 hour), and is outside this library's contract. Users SHOULD wrap fallible setup code in `try/except` and route caught exceptions through `init_failure` to avoid this case.
+
+#### Scenario: User catches setup failure and reports via init_failure
+- **WHEN** the user catches a cold-start setup failure at module load (e.g. `try: db = connect_db() except Exception as e: resource.init_failure(e)`) and a CloudFormation event is later delivered
+- **THEN** the library immediately sends a FAILED response with `Reason` derived from the recorded error, without invoking any registered handler
+
+#### Scenario: User does not catch setup failure
+- **WHEN** user setup code raises uncaught at module-import time
+- **THEN** Lambda's runtime fails to import the module; no library code runs; no response is sent (out of scope; CloudFormation will eventually time out the resource)
 
 ### Requirement: Logging surface for diagnostics
 
