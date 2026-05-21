@@ -44,6 +44,7 @@ creates:
 
 ```bash
 # Pick any commercial region for the stack — the role is global.
+# Add `--profile <your-profile>` if you use named AWS profiles.
 aws cloudformation deploy \
   --stack-name cfn-handler-layer-publisher \
   --template-file layer/iam-publisher.cfn.yaml \
@@ -63,6 +64,16 @@ aws cloudformation deploy \
   --parameter-overrides CreateOidcProvider=false
 ```
 
+To check whether the OIDC provider already exists:
+
+```bash
+aws iam list-open-id-connect-providers \
+  --query 'OpenIDConnectProviderList[?contains(Arn, `token.actions.githubusercontent.com`)]'
+```
+
+Empty array → safe to use the first `deploy` command (creates the provider).
+Non-empty → use the `CreateOidcProvider=false` variant.
+
 Capture the role ARN from the stack outputs:
 
 ```bash
@@ -77,7 +88,20 @@ The output looks like `arn:aws:iam::<account-id>:role/cfn-handler-layer-publishe
 
 ### 2. Create the `layer-publisher` GitHub environment
 
-In the GitHub UI for `igorlg/cfn-handler`:
+Two equivalent paths — UI or `gh` CLI.
+
+#### CLI (recommended; reproducible):
+
+```bash
+gh api -X PUT /repos/igorlg/cfn-handler/environments/layer-publisher
+```
+
+This creates an environment with **no protection rules** (the default
+when no body is sent). Required-reviewer or wait-timer rules would block
+the release-please bot from triggering the publish pipeline; we
+deliberately leave them off.
+
+#### UI:
 
 1. Settings → Environments → **New environment** → name it `layer-publisher`.
 2. Leave **all** protection rules unchecked. The release pipeline runs from
@@ -87,14 +111,35 @@ In the GitHub UI for `igorlg/cfn-handler`:
 
 ### 3. Add the role ARN as a secret
 
+#### CLI (recommended):
+
+```bash
+gh secret set LAYER_PUBLISHER_ROLE_ARN \
+  --env layer-publisher \
+  --repo igorlg/cfn-handler \
+  --body 'arn:aws:iam::<account-id>:role/cfn-handler-layer-publisher'
+```
+
+(Replace the ARN with the value captured from step 1.)
+
+#### UI:
+
 Inside the new `layer-publisher` environment:
 
 1. **Add secret** → name `LAYER_PUBLISHER_ROLE_ARN`, value = the ARN from
    step 1.
 2. Save.
 
-The release pipeline references it as `${{ secrets.LAYER_PUBLISHER_ROLE_ARN }}`
-inside the `publish-layer` job (which has `environment: layer-publisher`).
+#### Verify
+
+```bash
+gh api /repos/igorlg/cfn-handler/environments/layer-publisher --jq '{name, protection_rules}'
+gh secret list --env layer-publisher --repo igorlg/cfn-handler
+```
+
+The release pipeline references the secret as
+`${{ secrets.LAYER_PUBLISHER_ROLE_ARN }}` inside the `publish-layer` job
+(which has `environment: layer-publisher`).
 
 ### 4. (Optional) Verify the OIDC provider exists
 
