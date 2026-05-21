@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.1](https://github.com/igorlg/cfn-handler/compare/v1.1.0...v1.1.1) (2026-05-21)
+
+
+### Bug Fixes
+
+* **direnv:** use uv sync --frozen to prevent uv.lock drift on pull ([#11](https://github.com/igorlg/cfn-handler/issues/11)) ([93ab633](https://github.com/igorlg/cfn-handler/commit/93ab63332c628570ba263db1df93db8efef43253))
+
 ## [1.1.0](https://github.com/igorlg/cfn-handler/compare/v1.0.0...v1.1.0) (2026-05-21)
 
 
