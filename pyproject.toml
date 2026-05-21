@@ -11,7 +11,7 @@ license = "Apache-2.0"
 license-files = ["LICENSE", "NOTICE"]
 requires-python = ">=3.10"
 authors = [
-    { name = "Igor Lopes Gomes" },
+    { name = "Igor Londero Gentil" },
 ]
 keywords = [
     "aws",

@@ -49,6 +49,10 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
           enable-cache: true
+          # Distinct cache slot per-job: the lint job and the
+          # test/py3.12/ubuntu-24.04 matrix entry would otherwise compute
+          # the same key (same OS + Python + lockfile) and race.
+          cache-suffix: test
 
       - name: Install dependencies
         # Use `--frozen` rather than `--locked` so release-please's bump of
@@ -91,6 +95,9 @@ jobs:
         with:
           python-version: '3.12'
           enable-cache: true
+          # See note in the test job: distinct cache slot avoids the
+          # race with test (py3.12 / ubuntu-24.04).
+          cache-suffix: lint
 
       - name: Install lint dependencies
         run: uv sync --frozen --only-group lint
