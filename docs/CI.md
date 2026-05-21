@@ -35,7 +35,7 @@ with no API tokens stored anywhere.
 | `dependency-review.yml` | `pull_request: main` | `review dependencies` | yes |
 | `examples-lint.yml` | `pull_request: main` (paths: `examples/**`) | `cfn-lint over examples` | no (informational) |
 | `release.yml` | `push: main`, `workflow_dispatch` | `release-please bot`, `build + attach release artifacts`, `publish to PyPI` | n/a (post-merge) |
-| `secure-workflows.yml` | `pull_request: main` (paths: `.github/workflows/**`) | `ensure SHA-pinned actions` | yes (when applicable) |
+| `secure-workflows.yml` | `pull_request: main` | `ensure SHA-pinned actions` | yes |
 
 Branch protection on `main` requires the four "yes" checks above (the
 last column). `examples-lint` is intentionally not required — see the
@@ -76,10 +76,15 @@ last column). `examples-lint` is intentionally not required — see the
 
 ### `secure-workflows.yml`
 
-- Trigger: PR-only with `paths: ['.github/workflows/**']`. The path filter
-  saves CI minutes — non-workflow PRs don't trigger the SHA-pin checker.
-  Re-running on the merge commit was redundant once branch protection
-  requires this check to pass before merge.
+- Trigger: PR-only, **no path filter**. Runs on every PR. Originally
+  path-filtered to `.github/workflows/**` for cost savings, but that
+  combined with branch protection requiring the `ensure SHA-pinned
+  actions` status check left the check in `Expected` state forever
+  on PRs that didn't touch workflows — blocking unrelated merges.
+  Removing the filter is the cheap fix (~5s per PR); the proper
+  long-term fix is `dorny/paths-filter` driving a sentinel inside
+  the workflow itself, deferred to the same follow-up that promotes
+  `examples-lint` to required.
 
 ### `examples-lint.yml`
 

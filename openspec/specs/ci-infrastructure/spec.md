@@ -15,9 +15,11 @@ Every `uses:` reference in any workflow under `.github/workflows/` SHALL pin the
 - **WHEN** a contributor pins `pypa/gh-action-pypi-publish` to its tag-object SHA (the SHA returned by `gh api .../git/ref/tags/<tag>`) rather than its commit SHA
 - **THEN** the workflow appears valid by visual inspection but fails at runtime with `docker: Error response from daemon: manifest unknown` when the Docker action attempts to pull its image
 
-### Requirement: SHA-pin enforcement runs on every PR that touches workflows
+### Requirement: SHA-pin enforcement runs on every PR
 
-A dedicated workflow (`secure-workflows.yml`) SHALL execute on pull requests that modify any file under `.github/workflows/**` and SHALL fail the PR if any action is not commit-SHA-pinned. The enforcement workflow MUST itself be SHA-pinned.
+A dedicated workflow (`secure-workflows.yml`) SHALL execute on every pull request to `main` and SHALL fail the PR if any action under `.github/workflows/` is not commit-SHA-pinned. The enforcement workflow MUST itself be SHA-pinned.
+
+The workflow runs on every PR (no `paths` filter) deliberately. Branch protection requires the `ensure SHA-pinned actions` status check; a path-filtered workflow that does not trigger leaves the required check in `Expected` state forever, blocking unrelated PRs from merging. The cost is ~5 seconds per PR.
 
 #### Scenario: A PR modifies a workflow with a tag-pin
 - **WHEN** a PR adds or modifies `.github/workflows/<name>.yml` introducing a tag-pinned action
@@ -25,7 +27,7 @@ A dedicated workflow (`secure-workflows.yml`) SHALL execute on pull requests tha
 
 #### Scenario: A PR does not touch workflows
 - **WHEN** a PR only modifies `src/`, `tests/`, or `docs/`
-- **THEN** `secure-workflows.yml` does not trigger (saving CI minutes); branch protection does not require the check on such PRs
+- **THEN** `secure-workflows.yml` still triggers (no path filter) and reports a passing status check; branch protection's `ensure SHA-pinned actions` requirement is satisfied without blocking the merge
 
 ### Requirement: Workflow concurrency cancels superseded PR runs but never main runs
 
