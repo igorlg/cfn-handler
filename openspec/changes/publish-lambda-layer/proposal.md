@@ -18,20 +18,18 @@ A published Lambda Layer is the idiomatic alternative: the maintainer publishes 
   - **Augmented GitHub Release body** — each release's notes are extended with a per-region ARN table immediately after the layer publishes complete. Browsing the GH release at `https://github.com/igorlg/cfn-handler/releases/tag/v<version>` shows every ARN at a glance.
   - **`layer-arns.json` release asset** — structured JSON manifest (region → ARN) uploaded as a release asset on every release. Programmatic consumption: `curl -L https://github.com/igorlg/cfn-handler/releases/latest/download/layer-arns.json`.
   - **Shields.io badge in `README.md`** — uses GitHub-native release endpoint to render the current Layer version inline with the existing PyPI / Python / License badges.
-- **NEW** Per-region SSM parameters under `/cfn-handler/<region>/` in the **maintainer's** AWS account. **Not** the user-facing discovery mechanism — these are an operational record of what was published where. Users in other accounts cannot read them without cross-account SSM sharing infrastructure (out of scope; the public surfaces above cover the user need).
-  - `/cfn-handler/<region>/layer-arn/latest`
-  - `/cfn-handler/<region>/layer-arn/v<version>`
 
 ### Repository (maintainer-facing)
 
 - **NEW** `layer/` top-level directory holding all Lambda Layer publishing artifacts:
-  - `layer/README.md` — consumer-facing: ARN format, SSM lookup, SAM/CDK snippets.
+  - `layer/README.md` — consumer-facing: ARN format, SAM/CDK snippets.
   - `layer/MAINTAINER.md` — publisher setup: deploying the IAM role, opt-in region handling, what the release pipeline does.
   - `layer/iam-publisher.cfn.yaml` — CloudFormation template that creates the OIDC-federated IAM role used by GitHub Actions, scoped to the `layer-publisher` environment of this repo.
   - `layer/regions.txt` — canonical list of regions the Layer is published to. One region per line, sorted, comments allowed. Sourced directly by the release.yml matrix.
 - **MODIFIED** `.github/workflows/release.yml`:
   - New job `build-layer-zip` runs after `release-please` succeeds. Builds the layer ZIP and uploads it to the GitHub Release.
-  - New job `publish-layer` runs after `build-layer-zip`. Per-region matrix: assume role via OIDC → publish layer version → grant public read → write SSM parameters → upload an ARN-stub artifact for the aggregate step. `fail-fast: false` so a single bad region doesn't block the others.
+  - New job `set-layer-matrix` runs after `release-please` succeeds. Reads `regions.txt` for the matrix region list and derives the Lambda `--compatible-runtimes` argument from `pyproject.toml`'s Python classifiers (single source of truth — bumping the supported Python list edits one place).
+  - New job `publish-layer` runs after `build-layer-zip` and `set-layer-matrix`. Per-region matrix: assume role via OIDC → publish layer version with derived runtimes → grant public read → upload an ARN-stub artifact for the aggregate step. `fail-fast: false` so a single bad region doesn't block the others.
   - New job `aggregate-arns` runs after `publish-layer` completes. Downloads the per-region ARN artifacts, builds `layer-arns.json`, uploads it as a release asset, and edits the GitHub Release body to append a per-region ARN markdown table.
 - **NEW** GitHub repository environment `layer-publisher` (created via UI / API as part of the rollout). Holds the `LAYER_PUBLISHER_ROLE_ARN` secret. Bound by the OIDC trust policy.
 
@@ -53,7 +51,7 @@ A published Lambda Layer is the idiomatic alternative: the maintainer publishes 
 
 ### New Capabilities
 
-- `lambda-layer-publishing`: per-release Lambda Layer build + publish across commercial regions, with public read access and SSM-parameter ARN discovery.
+- `lambda-layer-publishing`: per-release Lambda Layer build + publish across commercial regions, with public read access and three public ARN discovery surfaces (release-body table, `layer-arns.json` asset, README badge).
 
 ### Modified Capabilities
 
@@ -61,8 +59,8 @@ None. The `ci-infrastructure` capability covers the test/lint/PyPI-publish pipel
 
 ## Impact
 
-- **AWS account**: `igorlg`'s dedicated AWS account holds the layer + SSM parameters. Cost ≈ $0/month (Lambda layers are free in storage; SSM Standard Parameter Store is free up to 10,000 parameters).
-- **IAM**: one OIDC-federated role assumed by GitHub Actions only when the `layer-publisher` environment is active in `release.yml`. Trust policy scoped to repo + environment. Permissions scoped to `lambda:*LayerVersion*` on `arn:aws:lambda:*:<account>:layer:cfn-handler*` and `ssm:*Parameter*` under `/cfn-handler/*`.
+- **AWS account**: `igorlg`'s dedicated AWS account holds the layer versions. Cost ≈ $0/month (Lambda layers are free in storage).
+- **IAM**: one OIDC-federated role assumed by GitHub Actions only when the `layer-publisher` environment is active in `release.yml`. Trust policy scoped to repo + environment. Permissions scoped to layer-version operations on `arn:aws:lambda:*:<account>:layer:cfn-handler*`; nothing else.
 - **Release time**: ~30 region deploys add ~2-5 minutes wall-clock (parallel matrix; each region's publish is ~5-10 seconds).
-- **User-facing**: layer ARNs become available on PyPI release notes / GitHub Release / SSM. No backward compatibility concern (it's a new product surface, not a change to the existing wheel).
+- **User-facing**: layer ARNs become available via the GitHub Release (body table + `layer-arns.json` asset). No backward compatibility concern (it's a new product surface, not a change to the existing wheel).
 - **Setup work for maintainer (Igor)**: one-time before this change can ship — deploy `layer/iam-publisher.cfn.yaml` to your AWS account, create the `layer-publisher` GitHub environment, save the role ARN to the environment secret. All documented in `layer/MAINTAINER.md`.

@@ -24,7 +24,7 @@ For every region listed in `layer/regions.txt`, every successful release SHALL p
 
 #### Scenario: Layer published to all regions in `regions.txt`
 - **WHEN** a release is created
-- **THEN** for every region in `layer/regions.txt` (excluding lines that are blank or start with `#`), a new layer version is published in that region; the published layer's `CompatibleRuntimes` includes every Python version from 3.10 through 3.14, and `CompatibleArchitectures` lists both `x86_64` and `arm64`
+- **THEN** for every region in `layer/regions.txt` (excluding lines that are blank or start with `#`), a new layer version is published in that region; the published layer's `CompatibleRuntimes` is derived at release time from the `Programming Language :: Python :: 3.X` classifiers in `pyproject.toml` (so the runtime list is always in sync with the package's declared support), and `CompatibleArchitectures` lists both `x86_64` and `arm64`
 
 #### Scenario: Public read access granted
 - **WHEN** the layer has been published in a region
@@ -37,25 +37,6 @@ For every region listed in `layer/regions.txt`, every successful release SHALL p
 #### Scenario: GovCloud and China regions are NOT included
 - **WHEN** `regions.txt` is read
 - **THEN** no `us-gov-*` or `cn-*` regions appear (different IAM partition and OIDC audience handling; deferred)
-
-### Requirement: SSM parameter ARN record (maintainer-operational)
-
-For every successful per-region publish, the workflow SHALL write two SSM Parameter Store parameters in that region recording the layer ARN. These parameters live in the maintainer's AWS account and are NOT a user-facing discovery mechanism — users in other accounts cannot read them without cross-account SSM sharing. They serve as the maintainer's operational record of what was published where; user-facing discovery uses the surfaces in the next requirement.
-
-The naming convention is:
-
-- `/cfn-handler/<region>/layer-arn/latest` — overwritten on every release, points to the most recent layer version's ARN
-- `/cfn-handler/<region>/layer-arn/v<version>` — written once per release, points to that specific version's ARN
-
-Both parameters are `Standard` tier, `String` type, in the maintainer's AWS account.
-
-#### Scenario: Maintainer queries the latest ARN in their account
-- **WHEN** the maintainer (with appropriate IAM trust to their AWS account) runs `aws ssm get-parameter --name /cfn-handler/us-east-1/layer-arn/latest --region us-east-1`
-- **THEN** the response is the most recent `cfn-handler` layer ARN in `us-east-1`
-
-#### Scenario: A user in a different AWS account tries to read the SSM parameter
-- **WHEN** an external user without trust to the maintainer's account runs the same `aws ssm get-parameter` call against the maintainer's account
-- **THEN** the call fails with `AccessDenied`; the user must use the public discovery surfaces instead (GitHub Release body, `layer-arns.json` asset, or shields badge)
 
 ### Requirement: Public ARN discovery via GitHub Release surfaces
 
@@ -100,10 +81,9 @@ The release pipeline's per-region publish jobs SHALL acquire AWS credentials via
 ### Requirement: Publisher-role permissions are least-privilege
 
 The IAM role's permissions SHALL be scoped to:
-- `lambda:PublishLayerVersion`, `lambda:GetLayerVersion`, `lambda:AddLayerVersionPermission` on `arn:aws:lambda:*:<account>:layer:cfn-handler*`
-- `ssm:PutParameter`, `ssm:GetParameter`, `ssm:LabelParameterVersion` on `arn:aws:ssm:*:<account>:parameter/cfn-handler/*`
+- `lambda:PublishLayerVersion`, `lambda:GetLayerVersion`, `lambda:GetLayerVersionPolicy`, `lambda:AddLayerVersionPermission`, `lambda:RemoveLayerVersionPermission`, `lambda:ListLayerVersions` on `arn:aws:lambda:*:<account>:layer:cfn-handler` and `arn:aws:lambda:*:<account>:layer:cfn-handler:*`
 
-The role SHALL NOT have any other permissions; it SHALL NOT be granted broad wildcards like `lambda:*` or `iam:*`.
+The role SHALL NOT have any other permissions; it SHALL NOT be granted broad wildcards like `lambda:*` or `iam:*`. It SHALL NOT have any non-Lambda service permissions (no SSM, no S3, no CloudWatch, etc.).
 
 #### Scenario: Role attempts a permission outside its allowlist
 - **WHEN** any process holding the publisher role's credentials attempts e.g. `iam:CreateUser`, `s3:GetObject`, or `lambda:DeleteFunction`
@@ -117,7 +97,7 @@ The role SHALL NOT have any other permissions; it SHALL NOT be granted broad wil
 
 A top-level `layer/` directory SHALL hold every artifact specific to Lambda Layer publishing. The directory SHALL contain at least:
 
-- `layer/README.md` — consumer-facing usage documentation (ARN format, SSM lookup, SAM/CDK snippets)
+- `layer/README.md` — consumer-facing usage documentation (ARN format, SAM/CDK snippets)
 - `layer/MAINTAINER.md` — publisher operational documentation (deploying the IAM CFN, creating the GitHub environment, opt-in region handling)
 - `layer/iam-publisher.cfn.yaml` — CloudFormation template for the OIDC-federated IAM role
 - `layer/regions.txt` — newline-delimited region list with `#` comments allowed; sourced directly by the release.yml matrix
@@ -128,7 +108,7 @@ A top-level `layer/` directory SHALL hold every artifact specific to Lambda Laye
 
 #### Scenario: Reading consumer documentation
 - **WHEN** a user wants to learn how to use the published layer
-- **THEN** they read `layer/README.md` and find the ARN format, SSM parameter names, and a working SAM template snippet
+- **THEN** they read `layer/README.md` and find the ARN format and a working SAM template snippet
 
 #### Scenario: Setting up the maintainer's AWS account
 - **WHEN** a (re-) maintainer wants to set up layer publishing in a new AWS account

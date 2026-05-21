@@ -218,7 +218,7 @@ runs (see [`layer/MAINTAINER.md`](../layer/MAINTAINER.md)):
 release-please ──► build-layer-zip ──► publish-layer (matrix over ~17 regions)
                    (wheel → ZIP)        (assume OIDC role; aws lambda
                                         publish-layer-version; public read;
-                                        SSM param; per-region artifact)
+                                        per-region artifact)
                                                 │
                                                 ▼
                                         aggregate-arns

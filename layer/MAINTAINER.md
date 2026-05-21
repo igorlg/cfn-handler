@@ -14,7 +14,7 @@ GitHub Actions jobs in `release.yml`:
    it to the GitHub Release.
 2. `publish-layer` — matrix over the regions in [`regions.txt`](regions.txt);
    per region, assumes the IAM role via OIDC, calls `lambda:PublishLayerVersion`,
-   grants public read, writes SSM parameters.
+   grants public read.
 3. `aggregate-arns` — gathers the per-region ARNs, uploads
    `layer-arns.json` as a release asset, and edits the GitHub Release body
    to append a per-region ARN markdown table.
@@ -39,8 +39,8 @@ creates:
 - An IAM role named `cfn-handler-layer-publisher` whose trust policy
   permits assumption only by GitHub Actions runs of `igorlg/cfn-handler`
   inside the `layer-publisher` environment.
-- Two inline policies scoping the role to `cfn-handler*` named layers and
-  `/cfn-handler/*` SSM parameters; nothing else.
+- An inline policy scoping the role to `cfn-handler*` named layers; nothing
+  else.
 
 ```bash
 # Pick any commercial region for the stack — the role is global.
@@ -232,10 +232,8 @@ region to `regions.txt`.
 - IAM role + OIDC provider: free.
 - Lambda layers: storage is free; per-region replication is by re-publishing
   (no egress cost).
-- SSM Parameter Store, Standard tier: free up to 10,000 parameters; we use
-  ~34 per release (17 regions × 2 parameter names).
 
-Total expected monthly cost: $0 unless the publish surface scales 10x.
+Total expected monthly cost: $0.
 
 ## See also
 

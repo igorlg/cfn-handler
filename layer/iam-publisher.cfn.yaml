@@ -1,12 +1,12 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: >
   IAM role assumed by GitHub Actions (via OIDC) to publish the cfn-handler
-  Lambda Layer across commercial regions and write per-region SSM parameters.
+  Lambda Layer across commercial regions.
 
   Trust is scoped to runs of the `release.yml` workflow inside the
   `igorlg/cfn-handler` repository while the `layer-publisher` environment
-  is active. Permissions are scoped to `cfn-handler*` named layers and
-  `/cfn-handler/*` SSM parameters; nothing else.
+  is active. Permissions are scoped to `cfn-handler*` named layers; nothing
+  else.
 
 Parameters:
   GitHubOrg:
@@ -100,20 +100,6 @@ Resources:
                 Resource:
                   - !Sub arn:aws:lambda:*:${AWS::AccountId}:layer:cfn-handler
                   - !Sub arn:aws:lambda:*:${AWS::AccountId}:layer:cfn-handler:*
-        - PolicyName: WriteCfnHandlerSsmParameters
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              # SSM parameter names start with /cfn-handler/...; resource
-              # ARNs in IAM omit the leading slash by convention.
-              - Sid: WriteCfnHandlerArnParameters
-                Effect: Allow
-                Action:
-                  - ssm:PutParameter
-                  - ssm:GetParameter
-                  - ssm:GetParameters
-                  - ssm:LabelParameterVersion
-                Resource: !Sub arn:aws:ssm:*:${AWS::AccountId}:parameter/cfn-handler/*
 
 Outputs:
   RoleArn:

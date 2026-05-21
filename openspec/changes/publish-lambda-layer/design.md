@@ -30,10 +30,11 @@ The reference implementation in this ecosystem is `aws-powertools/powertools-lam
 
 - Layer ZIP attached to every GitHub Release (cheap, available even if cross-region publishing fails).
 - Public-read Layer ARNs in every commercial region the maintainer has enabled.
-- SSM-parameter ARN discovery (`/cfn-handler/<region>/layer-arn/...`) for users who want to reference a layer by parameter rather than hard-coding an ARN.
+- ARN discovery via three public surfaces — augmented GitHub Release body, `layer-arns.json` release asset, and README shields.io badge — none of which require AWS credentials.
 - One ZIP works for all supported Python versions (3.10–3.14) and architectures (x86_64, arm64) — pure Python, zero deps.
 - OIDC-federated IAM role; no long-lived AWS credentials in GitHub secrets.
 - `layer/regions.txt` is the single source of truth for which regions get published; release.yml's matrix is generated from it.
+- `pyproject.toml`'s `Programming Language :: Python :: 3.X` classifiers are the single source of truth for `--compatible-runtimes`; release.yml derives the runtime list at publish time so the layer's declared support cannot drift from the package's.
 - Failure in one region doesn't block other regions (`fail-fast: false` matrix).
 
 **Non-Goals:**
@@ -48,7 +49,7 @@ The reference implementation in this ecosystem is `aws-powertools/powertools-lam
 
 ### D1 — Layer ZIP structure: one universal ZIP per release
 
-Pure-Python zero-deps means the ZIP is identical regardless of target Python version or architecture. We ship one `cfn_handler-X.Y.Z-layer.zip` whose top-level dir is `python/`, containing the unpacked wheel contents minus the `dist-info` metadata (the `dist-info` is for pip's bookkeeping; not needed at runtime). The published layer's `CompatibleRuntimes` lists all supported Python versions explicitly (`python3.10`, `python3.11`, `python3.12`, `python3.13`, `python3.14`); `CompatibleArchitectures` lists both `x86_64` and `arm64`. AWS validates these at function-association time but the actual content works on all combinations.
+Pure-Python zero-deps means the ZIP is identical regardless of target Python version or architecture. We ship one `cfn_handler-X.Y.Z-layer.zip` whose top-level dir is `python/`, containing the unpacked wheel contents minus the `dist-info` metadata (the `dist-info` is for pip's bookkeeping; not needed at runtime). The published layer's `CompatibleRuntimes` is derived from `pyproject.toml`'s `Programming Language :: Python :: 3.X` classifiers (so the runtime list can never drift from the package's declared support); `CompatibleArchitectures` lists both `x86_64` and `arm64`. AWS validates these at function-association time but the actual content works on all combinations.
 
 Considered: per-Python-version layers (5 ZIPs per release). Powertools does this; reasoning is they have C extensions for some optional features. We don't have C extensions and never will (zero-dep policy). One ZIP is simpler and correct.
 
@@ -110,37 +111,21 @@ Permissions:
   "Action": [
     "lambda:PublishLayerVersion",
     "lambda:GetLayerVersion",
-    "lambda:AddLayerVersionPermission"
+    "lambda:GetLayerVersionPolicy",
+    "lambda:AddLayerVersionPermission",
+    "lambda:RemoveLayerVersionPermission",
+    "lambda:ListLayerVersions"
   ],
-  "Resource": "arn:aws:lambda:*:<account>:layer:cfn-handler*"
-},
-{
-  "Effect": "Allow",
-  "Action": [
-    "ssm:PutParameter",
-    "ssm:GetParameter",
-    "ssm:LabelParameterVersion"
-  ],
-  "Resource": "arn:aws:ssm:*:<account>:parameter/cfn-handler/*"
+  "Resource": [
+    "arn:aws:lambda:*:<account>:layer:cfn-handler",
+    "arn:aws:lambda:*:<account>:layer:cfn-handler:*"
+  ]
 }
 ```
 
-Resource scoping ensures the role can only touch `cfn-handler*` named layers and `/cfn-handler/*` SSM parameters; no escape hatch into the broader account. CloudFormation template `layer/iam-publisher.cfn.yaml` codifies this.
+Resource scoping ensures the role can only touch `cfn-handler*` named layers; no escape hatch into the broader account, no permissions to non-Lambda services. CloudFormation template `layer/iam-publisher.cfn.yaml` codifies this.
 
-### D4 — SSM parameter naming convention (maintainer-operational, not user-facing)
-
-```
-/cfn-handler/<region>/layer-arn/latest          ← string param, holds the most recent ARN
-/cfn-handler/<region>/layer-arn/v<version>      ← e.g. v1.1.2; holds the version-specific ARN
-```
-
-Tier: `Standard` (free up to 10,000 params). Type: `String` (no SecureString needed; ARNs are public).
-
-**Important — these are NOT the user-facing discovery surface.** SSM parameters live in the maintainer's AWS account; they are not readable from other accounts without cross-account SSM sharing infrastructure (Resource Access Manager / AWS Identity Center setup), which is explicitly out of scope. The parameters serve as the maintainer's **operational record** of what was published where — useful for future cleanup tooling, dashboards, or canary verification. User-facing ARN discovery happens via the surfaces in D10.
-
-Considered: `/cfn-handler/<region>/<version>/layer-arn` — slightly cleaner read pattern. Rejected because the `latest` pointer fits naturally as a sibling under `layer-arn/`. The chosen pattern colocates `latest` and version-specific siblings.
-
-### D5 — Public read access via `lambda:AddLayerVersionPermission`
+### D4 — Public read access via `lambda:AddLayerVersionPermission`
 
 After each `PublishLayerVersion`, the workflow invokes:
 
@@ -157,7 +142,7 @@ This adds a resource policy granting any AWS principal `lambda:GetLayerVersion`.
 
 `StatementId: PublicRead` is the same identifier on every layer version (no need to vary; the resource policy is per-version). If the policy fails to apply, the workflow continues — the ARN is still valid for the maintainer's testing, just not for public consumption. A separate verification step asserts the public read grant.
 
-### D6 — Layer name: `cfn-handler`
+### D5 — Layer name: `cfn-handler`
 
 Same name as the PyPI package. Discoverable. Considered alternatives:
 
@@ -165,13 +150,13 @@ Same name as the PyPI package. Discoverable. Considered alternatives:
 - `cfn-handler-py3` — version-prefix. Rejected because the runtime version is part of `CompatibleRuntimes`; redundant.
 - `igorlg-cfn-handler` — namespaces the layer by maintainer. Rejected because layer ARNs already include the account ID; the layer NAME doesn't need to.
 
-### D7 — Failure semantics: per-region failures are isolated
+### D6 — Failure semantics: per-region failures are isolated
 
-Matrix uses `fail-fast: false`. A single bad region (e.g. transient AWS API hiccup, account opt-in lapse) reports failure but doesn't cancel the other matrix entries. Successful regions get their layer + SSM parameter; failed regions can be retried via `workflow_dispatch` on `release.yml` (which already exists for manual re-trigger).
+Matrix uses `fail-fast: false`. A single bad region (e.g. transient AWS API hiccup, account opt-in lapse) reports failure but doesn't cancel the other matrix entries. Successful regions get their layer published; failed regions can be retried via `workflow_dispatch` on `release.yml` (which already exists for manual re-trigger).
 
 The release-pipeline as a whole reports green if `release-please` succeeded and the wheel/sdist published to PyPI even if a few region publishes failed — those are *additional* surfaces, not the canonical artifact.
 
-### D8 — Build the layer ZIP from the wheel
+### D7 — Build the layer ZIP from the wheel
 
 The build job extracts `dist/*.whl` into `build/python/`, strips the `*.dist-info` metadata (not needed at runtime), and zips the result. This guarantees layer contents match the published wheel's contents exactly (same bytes, same `__version__`, same py.typed marker).
 
@@ -184,7 +169,7 @@ rm -rf build/python/*.dist-info
 
 Considered: building the layer from source directly (`pip install -t build/python/ -e .`). Rejected because the wheel is already the canonical built artifact; rebuilding from source risks divergence.
 
-### D9 — One-time maintainer setup is documented in `layer/MAINTAINER.md`
+### D8 — One-time maintainer setup is documented in `layer/MAINTAINER.md`
 
 The CFN template, the GitHub environment, and the secret all need to be created before the release pipeline can publish. `layer/MAINTAINER.md` walks through:
 
@@ -200,9 +185,9 @@ The CFN template, the GitHub environment, and the secret all need to be created 
 
 Idempotent: re-deploying the CFN template is a no-op; rotating the role ARN is one CFN update.
 
-### D10 — User-facing ARN discovery (three public surfaces)
+### D9 — User-facing ARN discovery (three public surfaces)
 
-Users in other AWS accounts cannot read the maintainer's SSM parameters (D4 is operational only). Three public surfaces let users discover ARNs without AWS credentials or cross-account trust:
+Three public surfaces let users discover ARNs without AWS credentials or cross-account trust:
 
 **1. GitHub Release body augmentation (primary).** The `aggregate-arns` job, after all per-region publishes complete, edits the GitHub Release notes via `gh release edit --notes-file -` to append a per-region ARN markdown table:
 
@@ -259,7 +244,7 @@ gh release edit v$VERSION --notes "$(cat existing-notes)\n\n## Lambda Layer ARNs
 
 ## Risks / Trade-offs
 
-- **[Risk] AWS API rate limits at scale.** ~17 regions × `PublishLayerVersion` + `AddLayerVersionPermission` + 2× `PutParameter` = ~68 API calls per release. Lambda's `PublishLayerVersion` rate limit is ~10/sec/account, well above this; SSM has ~40/sec; not a concern at our scale. Documented as a known watch-item if region count grows past 30.
+- **[Risk] AWS API rate limits at scale.** ~17 regions × (`PublishLayerVersion` + `AddLayerVersionPermission`) = ~34 API calls per release. Lambda's `PublishLayerVersion` rate limit is ~10/sec/account, well above this; not a concern at our scale. Documented as a known watch-item if region count grows past 30.
 - **[Risk] Layer accumulation.** Each release creates a new layer version in every region. AWS keeps all versions; storage is free but versions accumulate. After 100 releases × 17 regions = 1700 layer versions in the account. No deletion policy applied (Powertools doesn't either). Mitigation: spec a `prune-old-layer-versions` workflow as a future change if it becomes painful.
 - **[Risk] Maintainer absence.** If the maintainer's AWS account is suspended or the role is deleted, layer publishing fails forever; PyPI publishing continues (different mechanism). Documented in `layer/MAINTAINER.md`; user-facing impact is "users pin to the wheel via pip" which always works.
 - **[Trade-off] Public read access.** Anyone in the world can reference `arn:aws:lambda:<region>:<account>:layer:cfn-handler:N` without any IAM trust on their side. This is a *feature* (the whole point); the risk is that AWS could deprecate the public-grant pattern (no signs of this). Powertools is in the same boat; if AWS changed the model both projects would adapt together.
@@ -285,4 +270,4 @@ Rollback: if the layer publish itself starts failing, the rest of the release pi
 
 ## Open Questions
 
-None. Region list is editable; SSM parameter naming is reversible (just a key string); IAM role can be redeployed; layer name is locked in once first published but matches PyPI for clarity.
+None. Region list is editable; IAM role can be redeployed; layer name is locked in once first published but matches PyPI for clarity.

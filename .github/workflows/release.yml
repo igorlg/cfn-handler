@@ -92,7 +92,7 @@ jobs:
   # See layer/MAINTAINER.md for one-time AWS setup. Three jobs:
   #   build-layer-zip:   build the layer ZIP and attach to the GH Release.
   #   publish-layer:     per-region matrix; assume OIDC role; publish layer
-  #                      version with public read; write SSM parameter.
+  #                      version with public read.
   #   aggregate-arns:    collect per-region ARNs into a JSON manifest +
   #                      markdown table; upload manifest as a release asset
   #                      and append the table to the release notes.
@@ -149,6 +149,7 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       regions: ${{ steps.regions.outputs.regions }}
+      runtimes: ${{ steps.runtimes.outputs.runtimes }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -164,6 +165,30 @@ jobs:
           regions=$(grep -vE '^\s*(#|$)' layer/regions.txt | jq -R -s -c 'split("\n") | map(select(length > 0))')
           echo "regions=${regions}" >> "$GITHUB_OUTPUT"
           echo "Matrix regions: ${regions}"
+
+      - name: Derive Lambda --compatible-runtimes from pyproject.toml
+        id: runtimes
+        run: |
+          set -euo pipefail
+          # pyproject.toml's classifiers are the canonical statement of
+          # supported Python versions. Extract the X.Y entries (skip the
+          # bare "Python :: 3" classifier) and emit Lambda runtime names.
+          # ubuntu-24.04 ships python3 >= 3.11, so tomllib is available.
+          runtimes=$(python3 - <<'PY'
+          import tomllib
+          with open("pyproject.toml", "rb") as fp:
+              data = tomllib.load(fp)
+          versions = [
+              c.rsplit(":", 1)[-1].strip()
+              for c in data["project"]["classifiers"]
+              if c.startswith("Programming Language :: Python :: 3.")
+              and c.rsplit(":", 1)[-1].strip().count(".") == 1
+          ]
+          print(" ".join(f"python{v}" for v in versions))
+          PY
+          )
+          echo "runtimes=${runtimes}" >> "$GITHUB_OUTPUT"
+          echo "Compatible runtimes: ${runtimes}"
 
   publish-layer:
     name: publish Layer (${{ matrix.region }})
@@ -205,10 +230,11 @@ jobs:
           role-session-name: cfn-handler-layer-publisher-${{ matrix.region }}
           role-duration-seconds: 1200
 
-      - name: Publish Layer + grant public read + write SSM parameters
+      - name: Publish Layer + grant public read
         env:
           REGION: ${{ matrix.region }}
           TAG: ${{ needs.release-please.outputs.tag_name }}
+          RUNTIMES: ${{ needs.set-layer-matrix.outputs.runtimes }}
         run: |
           set -euo pipefail
           version="${TAG#v}"
@@ -221,13 +247,18 @@ jobs:
           fi
 
           echo "Publishing layer in ${REGION} from ${zip_file}..."
+          echo "Compatible runtimes: ${RUNTIMES}"
+          # RUNTIMES is space-separated (e.g. "python3.10 python3.11 ...")
+          # and intentionally word-split here so each version becomes its
+          # own --compatible-runtimes argument.
+          # shellcheck disable=SC2086
           arn=$(aws lambda publish-layer-version \
             --region "$REGION" \
             --layer-name cfn-handler \
             --description "cfn-handler ${version}" \
             --license-info "Apache-2.0" \
             --zip-file "fileb://${zip_file}" \
-            --compatible-runtimes python3.10 python3.11 python3.12 python3.13 python3.14 \
+            --compatible-runtimes ${RUNTIMES} \
             --compatible-architectures x86_64 arm64 \
             --query LayerVersionArn --output text)
           echo "Published: $arn"
@@ -244,23 +275,6 @@ jobs:
             --action lambda:GetLayerVersion \
             --principal '*' \
             >/dev/null 2>&1 || echo "  (PublicRead already granted; idempotent)"
-
-          echo "Writing SSM parameters in ${REGION}..."
-          aws ssm put-parameter \
-            --region "$REGION" \
-            --name "/cfn-handler/${REGION}/layer-arn/latest" \
-            --type String \
-            --value "$arn" \
-            --overwrite \
-            >/dev/null
-          # Version-specific param: don't overwrite (each version's ARN is
-          # immutable; if this re-runs with a different ARN, fail loudly).
-          aws ssm put-parameter \
-            --region "$REGION" \
-            --name "/cfn-handler/${REGION}/layer-arn/${TAG}" \
-            --type String \
-            --value "$arn" \
-            >/dev/null 2>&1 || echo "  (version param already exists; idempotent)"
 
           # Emit per-region artifact for the aggregate-arns job.
           mkdir -p artifacts
