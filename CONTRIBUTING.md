@@ -71,11 +71,16 @@ just test            # pytest, no coverage
 just test-cov        # pytest with coverage; fails if <95% line+branch
 just build           # uv build wheel + sdist
 just test-matrix     # full GH Actions matrix locally via act
+just gha-pre-release # every GHA gating job under act (~5-10 min)
 ```
 
 The `typecheck` recipe runs both mypy and pyright. If they disagree, the
 default policy is: prefer mypy, add `# pyright: ignore[<rule>]` with a
 short comment, and document the disagreement in the PR description.
+
+For the full CI/release pipeline architecture (workflows, triggers,
+SHA-pinning policy, release flow, branch protection, the postmortem of
+the v1.0.0 release failure), see [docs/CI.md](docs/CI.md).
 
 ## Tests
 
