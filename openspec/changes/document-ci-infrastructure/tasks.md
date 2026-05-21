@@ -30,9 +30,9 @@
 
 ## 5. Commit and PR
 
-- [ ] 5.1 Stage `docs/CI.md`, the README.md and CONTRIBUTING.md cross-link edits, and the openspec change directory. Commit with message `docs(ci): add docs/CI.md and ci-infrastructure spec`.
-- [ ] 5.2 Push to the existing `feat/gha-pre-release-recipe` branch (PR #7).
-- [ ] 5.3 Update PR #7's title and body to reflect the expanded scope (now: recipe + .actrc + docs).
+- [x] 5.1 Stage `docs/CI.md`, the README.md and CONTRIBUTING.md cross-link edits, and the openspec change directory. Commit with message `docs(ci): add docs/CI.md and ci-infrastructure spec`.
+- [x] 5.2 Push to the existing `feat/gha-pre-release-recipe` branch (PR #7).
+- [x] 5.3 Update PR #7's title and body to reflect the expanded scope (now: recipe + .actrc + docs).
 
 ## 6. Archive (post-merge)
 
