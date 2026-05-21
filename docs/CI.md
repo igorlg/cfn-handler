@@ -351,17 +351,35 @@ matrix-specific failures.
 
 ### `just gha-pre-release` (~5-10 minutes total)
 
-Sequentially runs every gating workflow under `act`:
+Sequential, fail-fast, **side-effect-free** gate:
 
-1. `secure-workflows.yml` (~5s) — re-validate SHA pinning
-2. `release.yml release-please` job (~10s) — exercise release-please-action against real GH API
-3. `ci.yml` matrix + lint (~3-5min)
-4. `codeql.yml` (~1-8min depending on bundle cache)
+1. `secure-workflows.yml` (~5s) — re-validate SHA pinning of every action.
+2. **Docker action manifest probe** (~2s) — for every Docker-based action
+   referenced in any workflow, verify that `ghcr.io/<repo>:<sha>` actually
+   resolves to a published image. This is the targeted defence against
+   the v1.0.0 release-failure bug class (annotated-tag-SHA on a Docker
+   action). Catches it locally in seconds.
+3a. `ci.yml` test matrix (~3-5 min) via `just test-matrix` — `act -j test`
+    against amd64 + arm64 × 5 Python versions in parallel.
+3b. `ci.yml` lint+typecheck job (~30s) — `act -j lint` runs ruff,
+    ruff format check, mypy strict, pyright strict, and cfn-lint over
+    examples. Yes, lint is a separate `act` invocation: `act -j test`
+    only selects the test job, so without 3b a lint-only failure would
+    sneak through the gate.
+4. `codeql.yml` (~1-8min depending on bundle cache) — Python
+   security-and-quality scan.
 
 Skips `dependency-review.yml` (needs PR context that `act` can't synthesize).
 
-This is the recommended pre-merge ritual for **dependency-bump PRs**, and
-would have caught the v1.0.0 release failure pre-merge.
+**Notably absent**: an `act` run of `release.yml`. An earlier iteration
+of this recipe ran `release.yml`'s `release-please` job locally; Codex
+review correctly flagged that this had real side effects (running
+`release-please-action` with the user's `gh auth token` against the
+actual repo can open or update real release PRs). The Docker-manifest
+probe in step 2 catches the bug class we cared about (the v1.0.0
+incident) without invoking `release.yml` at all, and is far faster.
+
+This is the recommended pre-merge ritual for **dependency-bump PRs**.
 
 ### `act` mappings (`.actrc`)
 
@@ -501,11 +519,13 @@ The retry succeeded; v1.0.0 published to PyPI.
 
 ### What would have caught it pre-merge
 
-`just gha-pre-release` (added in the same PR cycle as this doc) runs
-`act` against `release.yml`'s `release-please` job and the rest of the
-workflows. `act` performs the same `docker pull` the runner does —
-the annotated-tag-SHA bug would have surfaced as `manifest unknown`
-locally in ~10 seconds.
+`just gha-pre-release` (added in the same PR cycle as this doc) runs a
+**Docker-manifest probe** as step 2: for every Docker-based action
+referenced in any workflow, it does a `docker manifest inspect ghcr.io/<repo>:<sha>`
+and fails fast if the SHA does not resolve to a real image. This is a
+direct, side-effect-free check of exactly the bug class that broke us
+— no need to invoke `release.yml` (which would itself have side
+effects on the repo).
 
 The `--locked` failure would have surfaced post-merge CI on `main`
 either way, but CONTRIBUTING.md's lockfile-policy section now warns

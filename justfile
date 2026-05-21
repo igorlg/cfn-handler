@@ -111,19 +111,26 @@ test-matrix-arm64: _check-act
 
 # Run every GH Actions job that gates merging a PR to main (Dependabot vet).
 #
-# Sequential, fail-fast. Skipped: dependency-review.yml (needs PR context
-# that act can't synthesize). Requires `act` and an authenticated `gh` CLI.
+# Sequential, fail-fast, no side effects. Skipped: dependency-review.yml
+# (needs PR context act can't synthesize). Requires `act`, `gh` (authenticated),
+# and `docker`.
 #
 # Steps (each on a fresh container):
-#   1. secure-workflows.yml — re-validate SHA pinning of every action.
-#      ~5s. Catches tag-pinned or annotated-tag-SHA bumps.
-#   2. release.yml `release-please` job — exercise release-please-action
-#      against the real GitHub API. ~10s. Catches the "release.yml runs
-#      only on push to main, never tested by PR CI" gap.
-#   3. ci.yml — full matrix (amd64 + arm64) + lint+typecheck. ~3-5 min.
-#   4. codeql.yml — Python security-and-quality scan. ~1-8 min (slower
+#   1. secure-workflows.yml — re-validate SHA pinning of every action
+#      (~5s). Catches tag-pinned bumps.
+#   2. Docker action manifest probe — for every Docker-based action used
+#      anywhere in .github/workflows/, verify the pinned commit SHA
+#      resolves to a real ghcr.io image (~2s). Catches the
+#      annotated-tag-SHA-on-Docker-action class of bug (the v1.0.0
+#      release failure) without invoking release.yml — which would
+#      have real side effects on the repo (release-please-action
+#      authenticated as the user could open or update real release PRs).
+#   3a. ci.yml `test` matrix — amd64 + arm64 × 5 Python versions (~3-5 min).
+#   3b. ci.yml `lint` job — ruff, ruff-format, mypy strict, pyright strict,
+#       cfn-lint over examples (~30s).
+#   4. codeql.yml — Python security-and-quality scan (~1-8 min, slower
 #      on first run while CodeQL bundle downloads).
-gha-pre-release: _check-act _check-gh-token
+gha-pre-release: _check-act _check-gh-token _check-docker
     #!/usr/bin/env bash
     set -uo pipefail
 
@@ -132,24 +139,66 @@ gha-pre-release: _check-act _check-gh-token
       --secret GITHUB_TOKEN="$(gh auth token)"
     )
 
-    echo "==> [1/4] secure-workflows.yml — SHA-pin enforcement"
+    echo "==> [1/5] secure-workflows.yml — SHA-pin enforcement"
     act push -W .github/workflows/secure-workflows.yml "${common_flags[@]}" \
         --action-cache-path /tmp/act-cache-secure-workflows \
         || { echo; echo "FAIL: secure-workflows.yml"; exit 1; }
 
     echo
-    echo "==> [2/4] release.yml — release-please-action dry-run (real GH API)"
-    act push -W .github/workflows/release.yml "${common_flags[@]}" --job release-please \
-        --action-cache-path /tmp/act-cache-release-please \
-        || { echo; echo "FAIL: release.yml release-please job"; exit 1; }
+    echo "==> [2/5] Docker action manifest probe"
+    # Match `uses: <owner>/<repo>@<sha>` in every workflow file, then for any
+    # action that publishes a Docker image at ghcr.io/<owner>/<repo>, verify
+    # the SHA resolves to a real image. Currently this is just
+    # pypa/gh-action-pypi-publish; the loop is data-driven so any new
+    # Docker actions added to workflows are checked automatically.
+    docker_actions_with_images=(
+      "pypa/gh-action-pypi-publish"
+    )
+    failed_manifests=()
+    for action in "${docker_actions_with_images[@]}"; do
+      shas=$(grep -hE "uses: ${action}@[a-f0-9]{40}" .github/workflows/*.yml \
+              | grep -oE "[a-f0-9]{40}" | sort -u)
+      if [[ -z "$shas" ]]; then
+        echo "  (action ${action} not in use; skipping)"
+        continue
+      fi
+      while IFS= read -r sha; do
+        image="ghcr.io/${action}:${sha}"
+        printf "  probe %-80s ... " "$image"
+        if docker manifest inspect "$image" >/dev/null 2>&1; then
+          echo "OK"
+        else
+          echo "MISSING"
+          failed_manifests+=("$image")
+        fi
+      done <<< "$shas"
+    done
+    if (( ${#failed_manifests[@]} > 0 )); then
+      echo
+      echo "FAIL: Docker manifest probe — these images do not resolve:"
+      printf '  - %s\n' "${failed_manifests[@]}"
+      echo
+      echo "This is the v1.0.0 release-failure bug class: a Docker action was"
+      echo "pinned to its annotated-tag-object SHA instead of the commit SHA."
+      echo "Resolve the correct commit SHA via:"
+      echo "  gh api /repos/<owner>/<repo>/git/tags/\$(gh api /repos/<owner>/<repo>/git/ref/tags/<tag> --jq '.object.sha') --jq '.object.sha'"
+      exit 1
+    fi
+    echo "  (all Docker action images resolve)"
 
     echo
-    echo "==> [3/4] ci.yml — full matrix (amd64 + arm64) + lint+typecheck"
+    echo "==> [3a/5] ci.yml — test matrix (amd64 + arm64 in parallel)"
     just test-matrix \
-        || { echo; echo "FAIL: ci.yml matrix"; exit 1; }
+        || { echo; echo "FAIL: ci.yml test matrix"; exit 1; }
 
     echo
-    echo "==> [4/4] codeql.yml — Python security analysis"
+    echo "==> [3b/5] ci.yml — lint+typecheck job"
+    act push -W .github/workflows/ci.yml "${common_flags[@]}" --job lint \
+        --action-cache-path /tmp/act-cache-lint \
+        || { echo; echo "FAIL: ci.yml lint job"; exit 1; }
+
+    echo
+    echo "==> [4/5] codeql.yml — Python security analysis"
     act push -W .github/workflows/codeql.yml "${common_flags[@]}" \
         --action-cache-path /tmp/act-cache-codeql \
         || { echo; echo "FAIL: codeql.yml"; exit 1; }
@@ -189,3 +238,7 @@ _check-act:
 
 _check-gh-token:
     @gh auth token >/dev/null 2>&1 || { echo 'error: gh CLI not authenticated. Run: gh auth login'; exit 1; }
+
+_check-docker:
+    @command -v docker >/dev/null || { echo 'error: docker not installed. Install Docker Desktop, OrbStack, or Colima.'; exit 1; }
+    @docker info >/dev/null 2>&1 || { echo 'error: docker daemon not running.'; exit 1; }
