@@ -12,7 +12,7 @@ Six workflows under `.github/workflows/`:
 - **`codeql.yml`** — Python security-and-quality scan.
 - **`dependency-review.yml`** — license + vulnerability gate on PRs.
 - **`examples-lint.yml`** — cfn-lint over example SAM templates (PR-only, path-filtered).
-- **`release.yml`** — release-please + PyPI Trusted Publishing OIDC.
+- **`release.yml`** — release-please + PyPI Trusted Publishing OIDC; also drives the Lambda Layer publish across ~17 commercial regions via OIDC into a maintainer-owned AWS account.
 - **`secure-workflows.yml`** — enforces commit-SHA pinning of every action.
 
 Plus a Dependabot config (`.github/dependabot.yml`) and an `act` runner
@@ -34,7 +34,7 @@ with no API tokens stored anywhere.
 | `codeql.yml` | `pull_request: main`, `push: main`, weekly cron | `analyze (python)` | yes |
 | `dependency-review.yml` | `pull_request: main` | `review dependencies` | yes |
 | `examples-lint.yml` | `pull_request: main` (paths: `examples/**`) | `cfn-lint over examples` | no (informational) |
-| `release.yml` | `push: main`, `workflow_dispatch` | `release-please bot`, `build + attach release artifacts`, `publish to PyPI` | n/a (post-merge) |
+| `release.yml` | `push: main`, `workflow_dispatch` | `release-please bot`, `build + attach release artifacts`, `publish to PyPI`, `build Lambda Layer ZIP`, `build Layer publish matrix`, `publish Layer (matrix over regions)`, `aggregate Layer ARNs into release notes + manifest` | n/a (post-merge) |
 | `secure-workflows.yml` | `pull_request: main` | `ensure SHA-pinned actions` | yes |
 
 Branch protection on `main` requires the four "yes" checks above (the
@@ -198,7 +198,7 @@ feat: / fix: / feat!: commit
                                               ▼
                                        creates git tag + GH Release
                                               │
-                          ┌───────────────────┴────────────────────┐
+                           ┌───────────────────┴────────────────────┐
                           ▼                                        ▼
               publish-artifacts                              publish-pypi
               (uv build → gh release upload)                 (uv build → pypa/gh-action-pypi-publish)
@@ -210,6 +210,41 @@ feat: / fix: / feat!: commit
                                                                    ▼
                                                           wheel + sdist on PyPI
 ```
+
+In parallel with the PyPI publish, the Lambda Layer publishing surface
+runs (see [`layer/MAINTAINER.md`](../layer/MAINTAINER.md)):
+
+```text
+release-please ──► build-layer-zip ──► publish-layer (matrix over ~17 regions)
+                   (wheel → ZIP)        (assume OIDC role; aws lambda
+                                        publish-layer-version; public read;
+                                        SSM param; per-region artifact)
+                                                │
+                                                ▼
+                                        aggregate-arns
+                                        (download per-region artifacts;
+                                        build layer-arns.json; upload as
+                                        release asset; append ARN table to
+                                        GitHub Release notes)
+```
+
+The layer pipeline is gated on the `layer-publisher` GitHub environment
+which holds `LAYER_PUBLISHER_ROLE_ARN`. Per-region failures are isolated
+(`fail-fast: false`); the rest of the release succeeds even if a few
+regions fail. The `aggregate-arns` job runs `if: always()` so a partial
+publish still produces an inventory of the regions that did succeed.
+
+Three public ARN-discovery surfaces (no AWS credentials required):
+
+1. **GitHub Release body** — the `aggregate-arns` job appends a per-region
+   ARN markdown table to the release notes.
+2. **`layer-arns.json` release asset** — structured manifest at
+   `https://github.com/igorlg/cfn-handler/releases/latest/download/layer-arns.json`.
+3. **README badge** — current Layer version inline with the existing
+   PyPI / Python / License badges (uses GitHub-native release endpoint).
+
+See [`layer/README.md`](../layer/README.md) for consumer usage (SAM/CDK
+snippets, ARN format, alternative deploy in your own account).
 
 ### Conventional Commits → version bump
 

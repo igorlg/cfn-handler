@@ -3,6 +3,7 @@
 [![CI](https://github.com/igorlg/cfn-handler/actions/workflows/ci.yml/badge.svg)](https://github.com/igorlg/cfn-handler/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/cfn-handler.svg)](https://pypi.org/project/cfn-handler/)
 [![Python Versions](https://img.shields.io/pypi/pyversions/cfn-handler.svg)](https://pypi.org/project/cfn-handler/)
+[![Lambda Layer](https://img.shields.io/github/v/release/igorlg/cfn-handler?label=lambda%20layer&color=ff9900&logo=amazonaws)](https://github.com/igorlg/cfn-handler/releases/latest)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
 A modern, well-engineered Python library for writing AWS CloudFormation
@@ -70,6 +71,35 @@ uv add cfn-handler
 `cfn-handler` requires Python 3.10+ and has **zero runtime dependencies**.
 Polling support uses `boto3` lazily; `boto3` ships preinstalled in the AWS
 Lambda Python runtimes, so no extra install is needed there.
+
+### Or use the AWS Lambda Layer
+
+Every release publishes a public Lambda Layer in ~17 commercial regions. To
+use it, reference the ARN in your function definition — no `pip install`
+during deploy, no vendoring into your function package:
+
+```yaml
+# SAM
+Resources:
+  MyFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Runtime: python3.12
+      Layers:
+        - arn:aws:lambda:us-east-1:<account-id>:layer:cfn-handler:N
+```
+
+Find the right ARN for your region in the [latest release notes][latest-release]
+(per-region table) or the JSON manifest:
+
+```sh
+curl -fsSL https://github.com/igorlg/cfn-handler/releases/latest/download/layer-arns.json
+```
+
+See [`layer/README.md`](layer/README.md) for SAM/CDK snippets, the alternative
+deploy-it-yourself path, and the maintainer's account ID.
+
+[latest-release]: https://github.com/igorlg/cfn-handler/releases/latest
 
 ## Comparison to crhelper
 

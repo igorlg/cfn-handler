@@ -87,3 +87,268 @@ jobs:
 
       - name: Publish to PyPI (Trusted Publisher / OIDC)
         uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # v1.14.0
+
+  # ---- Lambda Layer publishing ----------------------------------------
+  # See layer/MAINTAINER.md for one-time AWS setup. Three jobs:
+  #   build-layer-zip:   build the layer ZIP and attach to the GH Release.
+  #   publish-layer:     per-region matrix; assume OIDC role; publish layer
+  #                      version with public read; write SSM parameter.
+  #   aggregate-arns:    collect per-region ARNs into a JSON manifest +
+  #                      markdown table; upload manifest as a release asset
+  #                      and append the table to the release notes.
+  # All three are gated on `release_created == 'true'` from release-please.
+
+  build-layer-zip:
+    name: build Lambda Layer ZIP
+    needs: release-please
+    if: ${{ needs.release-please.outputs.release_created == 'true' }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write   # for `gh release upload`
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.release-please.outputs.tag_name }}
+          persist-credentials: false
+
+      - name: Install uv with Python 3.12
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          python-version: '3.12'
+          enable-cache: true
+
+      - name: Build wheel
+        run: uv build --wheel
+
+      - name: Repackage wheel as Lambda Layer ZIP
+        env:
+          TAG: ${{ needs.release-please.outputs.tag_name }}
+        run: |
+          set -euo pipefail
+          # Strip leading 'v' from the tag (v1.2.0 -> 1.2.0).
+          version="${TAG#v}"
+          mkdir -p build/python
+          unzip -q dist/cfn_handler-*.whl -d build/python
+          # Lambda doesn't need pip's bookkeeping.
+          rm -rf build/python/*.dist-info
+          (cd build && zip -qr "../dist/cfn_handler-${version}-layer.zip" python/)
+          ls -la dist/
+
+      - name: Upload Layer ZIP to GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "${{ needs.release-please.outputs.tag_name }}" dist/cfn_handler-*-layer.zip \
+            --repo "${{ github.repository }}" \
+            --clobber
+
+  set-layer-matrix:
+    name: build Layer publish matrix
+    needs: release-please
+    if: ${{ needs.release-please.outputs.release_created == 'true' }}
+    runs-on: ubuntu-24.04
+    outputs:
+      regions: ${{ steps.regions.outputs.regions }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.release-please.outputs.tag_name }}
+          persist-credentials: false
+
+      - name: Read layer/regions.txt into a JSON array
+        id: regions
+        run: |
+          set -euo pipefail
+          # Strip blank lines and # comments; jq -R -s -c assembles the
+          # array. Output as `regions=[...]` for the matrix to consume.
+          regions=$(grep -vE '^\s*(#|$)' layer/regions.txt | jq -R -s -c 'split("\n") | map(select(length > 0))')
+          echo "regions=${regions}" >> "$GITHUB_OUTPUT"
+          echo "Matrix regions: ${regions}"
+
+  publish-layer:
+    name: publish Layer (${{ matrix.region }})
+    needs: [release-please, build-layer-zip, set-layer-matrix]
+    if: ${{ needs.release-please.outputs.release_created == 'true' }}
+    runs-on: ubuntu-24.04
+    environment: layer-publisher
+    permissions:
+      id-token: write   # OIDC token to assume the publisher role
+      contents: read
+    strategy:
+      fail-fast: false
+      max-parallel: 10  # Be polite to AWS APIs; matrix has ~17 entries today.
+      matrix:
+        region: ${{ fromJSON(needs.set-layer-matrix.outputs.regions) }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.release-please.outputs.tag_name }}
+          persist-credentials: false
+
+      - name: Download Layer ZIP from GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.release-please.outputs.tag_name }}
+        run: |
+          set -euo pipefail
+          gh release download "$TAG" \
+            --repo "${{ github.repository }}" \
+            --pattern 'cfn_handler-*-layer.zip' \
+            --dir dist/
+          ls -la dist/
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@00943011d9042930efac3dcd3a170e4273319bc8 # v5.1.0
+        with:
+          role-to-assume: ${{ secrets.LAYER_PUBLISHER_ROLE_ARN }}
+          aws-region: ${{ matrix.region }}
+          role-session-name: cfn-handler-layer-publisher-${{ matrix.region }}
+          role-duration-seconds: 1200
+
+      - name: Publish Layer + grant public read + write SSM parameters
+        env:
+          REGION: ${{ matrix.region }}
+          TAG: ${{ needs.release-please.outputs.tag_name }}
+        run: |
+          set -euo pipefail
+          version="${TAG#v}"
+          # Resolve the layer zip via globbing (find handles non-alphanumerics
+          # better than `ls | head`).
+          zip_file=$(find dist -maxdepth 1 -name 'cfn_handler-*-layer.zip' -print -quit)
+          if [[ -z "$zip_file" ]]; then
+            echo "ERROR: no layer zip found in dist/" >&2
+            exit 1
+          fi
+
+          echo "Publishing layer in ${REGION} from ${zip_file}..."
+          arn=$(aws lambda publish-layer-version \
+            --region "$REGION" \
+            --layer-name cfn-handler \
+            --description "cfn-handler ${version}" \
+            --license-info "Apache-2.0" \
+            --zip-file "fileb://${zip_file}" \
+            --compatible-runtimes python3.10 python3.11 python3.12 python3.13 python3.14 \
+            --compatible-architectures x86_64 arm64 \
+            --query LayerVersionArn --output text)
+          echo "Published: $arn"
+          version_number=$(echo "$arn" | awk -F: '{print $NF}')
+
+          echo "Granting public read on version ${version_number}..."
+          # add-layer-version-permission fails if the statement-id already
+          # exists. Treat that as success (idempotent re-runs).
+          aws lambda add-layer-version-permission \
+            --region "$REGION" \
+            --layer-name cfn-handler \
+            --version-number "$version_number" \
+            --statement-id PublicRead \
+            --action lambda:GetLayerVersion \
+            --principal '*' \
+            >/dev/null 2>&1 || echo "  (PublicRead already granted; idempotent)"
+
+          echo "Writing SSM parameters in ${REGION}..."
+          aws ssm put-parameter \
+            --region "$REGION" \
+            --name "/cfn-handler/${REGION}/layer-arn/latest" \
+            --type String \
+            --value "$arn" \
+            --overwrite \
+            >/dev/null
+          # Version-specific param: don't overwrite (each version's ARN is
+          # immutable; if this re-runs with a different ARN, fail loudly).
+          aws ssm put-parameter \
+            --region "$REGION" \
+            --name "/cfn-handler/${REGION}/layer-arn/${TAG}" \
+            --type String \
+            --value "$arn" \
+            >/dev/null 2>&1 || echo "  (version param already exists; idempotent)"
+
+          # Emit per-region artifact for the aggregate-arns job.
+          mkdir -p artifacts
+          jq -nc --arg region "$REGION" --arg arn "$arn" \
+            '{region: $region, arn: $arn}' > "artifacts/arn-${REGION}.json"
+
+      - name: Upload per-region ARN artifact
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        with:
+          name: layer-arn-${{ matrix.region }}
+          path: artifacts/arn-${{ matrix.region }}.json
+          if-no-files-found: error
+          retention-days: 7
+
+  aggregate-arns:
+    name: aggregate Layer ARNs into release notes + manifest
+    needs: [release-please, publish-layer]
+    if: ${{ always() && needs.release-please.outputs.release_created == 'true' }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write   # gh release edit + gh release upload
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.release-please.outputs.tag_name }}
+          persist-credentials: false
+
+      - name: Download all per-region ARN artifacts
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
+        with:
+          path: artifacts/
+          pattern: layer-arn-*
+          merge-multiple: false
+
+      - name: Build layer-arns.json + ARN markdown table
+        env:
+          TAG: ${{ needs.release-please.outputs.tag_name }}
+        run: |
+          set -euo pipefail
+          version="${TAG#v}"
+
+          # Each per-region artifact is a directory containing arn-<region>.json.
+          # Collect into an array, sort by region, build the manifest.
+          regions_json=$(find artifacts -type f -name 'arn-*.json' \
+            -exec cat {} + \
+            | jq -s 'sort_by(.region) | map({(.region): .arn}) | add // {}')
+          jq -n --arg version "$version" --argjson regions "$regions_json" '{
+            version: $version,
+            layer_name: "cfn-handler",
+            regions: $regions
+          }' > layer-arns.json
+          cat layer-arns.json
+
+          # Markdown table of region -> ARN, sorted alphabetically by region.
+          {
+            printf '| Region | ARN |\n'
+            printf '|---|---|\n'
+            jq -r '.regions | to_entries | sort_by(.key)[] | "| `\(.key)` | `\(.value)` |"' layer-arns.json
+          } > arns-table.md
+          cat arns-table.md
+
+      - name: Upload layer-arns.json to GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.release-please.outputs.tag_name }}
+        run: |
+          gh release upload "$TAG" layer-arns.json \
+            --repo "${{ github.repository }}" \
+            --clobber
+
+      - name: Append ARN table to GitHub Release notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.release-please.outputs.tag_name }}
+        run: |
+          set -euo pipefail
+          # Read existing release notes; append our section if not already
+          # present (so re-runs are idempotent).
+          gh release view "$TAG" --repo "${{ github.repository }}" --json body --jq .body > existing-notes.md
+          if ! grep -q '^## Lambda Layer ARNs' existing-notes.md; then
+            {
+              cat existing-notes.md
+              printf '\n\n## Lambda Layer ARNs\n\n'
+              cat arns-table.md
+              printf '\n\n_Layer ZIP also attached as a release asset; programmatic manifest at_ `layer-arns.json`. _See `layer/README.md` for usage._\n'
+            } > new-notes.md
+            gh release edit "$TAG" --repo "${{ github.repository }}" --notes-file new-notes.md
+            echo "Release notes updated with ARN table."
+          else
+            echo "Release notes already contain ARN table; skipping append."
+          fi
