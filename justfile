@@ -40,7 +40,7 @@ lint-ruff:
 
 # cfn-lint over example SAM templates.
 lint-cfn:
-    uvx cfn-lint examples/**/template.yaml
+    uv run cfn-lint examples/**/template.yaml
 
 # Auto-fix ruff issues with safe fixes; re-run lint after.
 lint-fix:

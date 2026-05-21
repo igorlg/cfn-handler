@@ -26,9 +26,9 @@
           # Task runner
           just
 
-          # Linters / static analysis
-          # cfn-lint lives under python3Packages in nixpkgs (it is a Python tool).
-          python3Packages.cfn-lint   # for examples/**/template.yaml validation
+          # Python linters/typecheckers (ruff, mypy, pyright, cfn-lint) are
+          # managed via the `lint` dependency-group in pyproject.toml so they
+          # are version-pinned via uv.lock for both Nix and non-Nix users.
 
           # AWS / GitHub tooling
           awscli2
@@ -44,7 +44,7 @@
 
           # Utilities
           jq
-          nodejs_20          # cfn-lint / act helpers occasionally invoke node
+          nodejs_20          # required by act for JS-action steps
         ];
 
         shellHook = ''
@@ -54,9 +54,11 @@
           echo "  uv:        $(uv --version)"
           echo "  just:      $(just --version)"
           echo "  python:    $(python3 --version)"
-          echo "  cfn-lint:  $(cfn-lint --version 2>/dev/null || echo not found)"
           echo "  gh:        $(gh --version | head -1)"
           echo "  act:       $(act --version 2>/dev/null | head -1 || echo not found)"
+          echo ""
+          echo "  Python tools (ruff, mypy, pyright, cfn-lint) come from uv:"
+          echo "    uv sync --all-groups"
           echo ""
           echo "  Quickstart:  uv sync --all-groups && just test"
           echo "  Recipes:     just --list"
