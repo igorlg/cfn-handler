@@ -27,23 +27,23 @@
 
 ## 5. PR open + cloud CI
 
-- [ ] 5.1 Stage all changes; commit with message `refactor(ci): PR-only triggers + ci-pass aggregator + examples-lint split`.
-- [ ] 5.2 Create branch `feat/ci-trigger-refactor` (or similar); push.
-- [ ] 5.3 `gh pr create` against `main`. PR description references this OpenSpec change directory.
-- [ ] 5.4 Watch cloud CI: `CI passed` should appear for the first time; `analyze (python)`, `review dependencies`, `ensure SHA-pinned actions` should also run. Verify all green.
-- [ ] 5.5 If `CI passed` reports failure, debug and push fixes before proceeding to step 6.
+- [x] 5.1 Stage all changes; commit with message `refactor(ci): PR-only triggers + ci-pass aggregator + examples-lint split`.
+- [x] 5.2 Create branch `feat/ci-trigger-refactor` (or similar); push.
+- [x] 5.3 `gh pr create` against `main`. PR description references this OpenSpec change directory.
+- [x] 5.4 Watch cloud CI: `CI passed` should appear for the first time; `analyze (python)`, `review dependencies`, `ensure SHA-pinned actions` should also run. Verify all green.
+- [x] 5.5 If `CI passed` reports failure, debug and push fixes before proceeding to step 6.
 
 ## 6. Enable branch protection (irreversible-ish step)
 
-- [ ] 6.1 Once cloud CI is green and a `CI passed` check has appeared at least once on a `main` history (so GitHub knows the check name): `gh api -X PUT /repos/igorlg/cfn-handler/branches/main/protection --input <protection.json>` with the JSON: `required_status_checks.contexts = ["CI passed", "analyze (python)", "review dependencies", "ensure SHA-pinned actions"]`, `strict: true`, `enforce_admins: false`, `required_pull_request_reviews: null`, `restrictions: null`, `required_linear_history: true`, `allow_force_pushes: false`, `allow_deletions: false`, `block_creations: false`, `required_conversation_resolution: false`.
-- [ ] 6.2 Verify `gh api /repos/igorlg/cfn-handler/branches/main/protection` returns the configured rule (no longer 404).
-- [ ] 6.3 Verify in the GitHub UI: Settings → Branches → main rule shows the four required checks.
+- [x] 6.1 Once cloud CI is green and a `CI passed` check has appeared at least once on a `main` history (so GitHub knows the check name): `gh api -X PUT /repos/igorlg/cfn-handler/branches/main/protection --input <protection.json>` with the JSON: `required_status_checks.contexts = ["CI passed", "analyze (python)", "review dependencies", "ensure SHA-pinned actions"]`, `strict: true`, `enforce_admins: false`, `required_pull_request_reviews: null`, `restrictions: null`, `required_linear_history: true`, `allow_force_pushes: false`, `allow_deletions: false`, `block_creations: false`, `required_conversation_resolution: false`.
+- [x] 6.2 Verify `gh api /repos/igorlg/cfn-handler/branches/main/protection` returns the configured rule (no longer 404).
+- [x] 6.3 Verify in the GitHub UI: Settings → Branches → main rule shows the four required checks.
 
 ## 7. Merge
 
-- [ ] 7.1 Squash-merge the PR. Title format: `refactor(ci): PR-only triggers + ci-pass aggregator + examples-lint split (#N)`.
-- [ ] 7.2 Verify post-merge: `release.yml` runs (release-please evaluates; no release because chore commit); `ci.yml` does NOT run on the merge commit (PR-only now). The CodeQL run on `main` is expected (still dual-triggered).
-- [ ] 7.3 Verify branch protection works: from a fresh terminal, `git checkout main && git commit --allow-empty -m "ci: prove protection works" && git push origin main` should be rejected with a branch-protection-rule-violation error. Reset locally if needed: `git reset --hard origin/main`.
+- [x] 7.1 Squash-merge the PR. Title format: `refactor(ci): PR-only triggers + ci-pass aggregator + examples-lint split (#N)`.
+- [x] 7.2 Verify post-merge: `release.yml` runs (release-please evaluates; no release because chore commit); `ci.yml` does NOT run on the merge commit (PR-only now). The CodeQL run on `main` is expected (still dual-triggered).
+- [x] 7.3 Verify branch protection works: from a fresh terminal, `git checkout main && git commit --allow-empty -m "ci: prove protection works" && git push origin main` should be rejected with a branch-protection-rule-violation error. Reset locally if needed: `git reset --hard origin/main`.
 
 ## 8. Validate + archive
 

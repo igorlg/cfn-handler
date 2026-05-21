@@ -435,10 +435,26 @@ Enabled on `main` with the following required status checks:
 - `ensure SHA-pinned actions` — secure-workflows zgosalvez
 
 Settings: `strict: true` (require branches up-to-date before merge),
-`enforce_admins: false` (admin bypass for emergencies),
+`enforce_admins: false` (admin bypass for emergencies — see note below),
 `required_linear_history: true` (matches squash-merge convention),
-`required_pull_request_reviews: null` (no review requirement; solo dev
-pattern), `allow_force_pushes: false`, `allow_deletions: false`.
+`required_pull_request_reviews: { required_approving_review_count: 0 }`
+(require a PR but no review approvals — solo dev pattern; the field is
+non-null so direct pushes are blocked for non-admins, with `0` reviews
+so you don't self-block your own PRs), `allow_force_pushes: false`,
+`allow_deletions: false`.
+
+> **Note on admin bypass.** With `enforce_admins: false`, repository
+> admins can override required status checks, the PR-required rule,
+> and linear-history. Force-pushes and deletions are blocked for
+> admins too (those settings are not under `enforce_admins` control).
+> Admin override emits a `Bypassed rule violations:` warning in the
+> push response but proceeds. The trade-off is intentional:
+> `enforce_admins: true` would also block release-please's bot PRs
+> from being merged (bot PRs don't trigger CI under `GITHUB_TOKEN`,
+> so required checks would always be "missing"), forcing either a
+> protection-toggle dance per release or a Personal Access Token
+> setup for `release-please-action`. Documented as a known
+> trade-off; revisit via a separate change if needed.
 
 ### Why `examples-lint` is not required
 
@@ -477,7 +493,12 @@ gh api -X PUT /repos/igorlg/cfn-handler/branches/main/protection \
     ]
   },
   "enforce_admins": false,
-  "required_pull_request_reviews": null,
+  "required_pull_request_reviews": {
+    "required_approving_review_count": 0,
+    "dismiss_stale_reviews": false,
+    "require_code_owner_reviews": false,
+    "require_last_push_approval": false
+  },
   "restrictions": null,
   "required_linear_history": true,
   "allow_force_pushes": false,
