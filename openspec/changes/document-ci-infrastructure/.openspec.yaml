@@ -1,0 +1,4 @@
+schema: spec-driven
+created: 2026-05-21
+goal: Single source of truth for how CI/release works, why each decision was
+  made, and how contributors replay it locally

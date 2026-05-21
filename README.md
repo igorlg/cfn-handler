@@ -111,8 +111,11 @@ change between minor versions.
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). For contributors who use Nix, a
-`flake.nix` provides a reproducible dev shell.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the development workflow,
+commit conventions, and lockfile policy. For contributors who use Nix, a
+`flake.nix` provides a reproducible dev shell. The CI/release pipeline
+itself is documented in [docs/CI.md](docs/CI.md), including the
+local-replay tooling and a postmortem of the v1.0.0 release failure.
 
 ## License
 

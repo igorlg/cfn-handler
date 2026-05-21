@@ -90,6 +90,8 @@
         };
     in
     {
-      devShells = forAllSystems (system: { default = mkDevShell system; });
+      devShells = forAllSystems (system: {
+        default = mkDevShell system;
+      });
     };
 }
