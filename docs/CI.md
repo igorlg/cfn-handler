@@ -488,13 +488,49 @@ so you don't self-block your own PRs), `allow_force_pushes: false`,
 > and linear-history. Force-pushes and deletions are blocked for
 > admins too (those settings are not under `enforce_admins` control).
 > Admin override emits a `Bypassed rule violations:` warning in the
-> push response but proceeds. The trade-off is intentional:
-> `enforce_admins: true` would also block release-please's bot PRs
-> from being merged (bot PRs don't trigger CI under `GITHUB_TOKEN`,
-> so required checks would always be "missing"), forcing either a
-> protection-toggle dance per release or a Personal Access Token
-> setup for `release-please-action`. Documented as a known
-> trade-off; revisit via a separate change if needed.
+> push response but proceeds. We keep `enforce_admins: false` so a
+> single human can hot-fix a wedged release pipeline; the day-to-day
+> safety net is the required status checks themselves.
+
+### How release-please PRs trigger required checks
+
+GitHub deliberately blocks the default `GITHUB_TOKEN` from creating
+workflow runs (anti-recursion). PRs opened by `release-please-action`
+under `GITHUB_TOKEN` therefore never had `pull_request` workflows fire
+against them, leaving every required status check stuck at
+"Expected — Waiting for status to be reported" — unmergeable without
+manual unblocks.
+
+`release.yml` solves this by minting a short-lived installation token
+from a dedicated GitHub App before invoking `release-please-action`:
+
+```yaml
+- uses: actions/create-github-app-token@<sha> # v3.x
+  id: app-token
+  with:
+    app-id: ${{ vars.RELEASE_PLEASE_APP_ID }}
+    private-key: ${{ secrets.RELEASE_PLEASE_PRIVATE_KEY }}
+
+- uses: googleapis/release-please-action@<sha> # v4
+  with:
+    token: ${{ steps.app-token.outputs.token }}
+```
+
+PRs opened with the App's token are not subject to the recursion guard;
+required checks (`CI passed`, `analyze (python)`, `review dependencies`,
+`ensure SHA-pinned actions`) fire automatically.
+
+The App `igorlg-release-bot` is registered to `igorlg`, installed on
+`igorlg/cfn-handler` only, and granted exactly two repository
+permissions: `Contents: write` (push the release branch + create tags)
+and `Pull requests: write` (open the release PR). Two pieces of state:
+`vars.RELEASE_PLEASE_APP_ID` (the App's numeric ID, non-sensitive) and
+`secrets.RELEASE_PLEASE_PRIVATE_KEY` (the PEM private key, sensitive).
+Tokens minted from this App are scoped to the install and expire after
+~1 hour; nothing long-lived sits in the workflow run context.
+
+A PAT is the alternative, but it would expire annually and require
+manual rotation. The App's private key has no GitHub-imposed expiry.
 
 ### Why `examples-lint` is not required
 
@@ -627,9 +663,12 @@ divergence, including the local project's own version.
 
 This was always going to break on the first release-please merge. CI on
 PRs ran on the bot's release-please branch, where the same drift
-existed, but those CI runs are short-circuited by GitHub's
+existed, but those CI runs were short-circuited at the time by GitHub's
 `secrets.GITHUB_TOKEN` not triggering follow-up PR-triggered workflows
 on bot-authored branches — so the failure didn't surface pre-merge.
+(The latter has since been resolved by switching `release.yml` to mint
+its release-please token via a dedicated GitHub App; see
+[How release-please PRs trigger required checks](#how-release-please-prs-trigger-required-checks).)
 
 ### What we changed
 
