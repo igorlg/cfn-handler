@@ -25,13 +25,20 @@ jobs:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
 
-  publish-artifacts:
-    name: build + attach release artifacts
+  # Build the wheel + sdist exactly once and share via a workflow artifact.
+  # Three downstream jobs consume it (publish-artifacts, publish-pypi,
+  # build-layer-zip). Building once means:
+  #   * the wheel uploaded to PyPI is byte-identical to the wheel attached
+  #     to the GitHub Release and to the wheel repackaged as the Lambda
+  #     Layer — no "should be deterministic" hand-wave;
+  #   * one setup-uv invocation, not three, so the matrix doesn't race for
+  #     the same uv-cache key (avoids the cache-reservation warning);
+  #   * roughly halves the total release wall-clock spent on `uv build`.
+  build-artifacts:
+    name: build wheel + sdist
     needs: release-please
     if: ${{ needs.release-please.outputs.release_created == 'true' }}
     runs-on: ubuntu-24.04
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -47,6 +54,28 @@ jobs:
       - name: Build wheel + sdist
         run: uv build
 
+      - name: Upload dist/ as workflow artifact
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7
+
+  publish-artifacts:
+    name: attach release artifacts to GitHub Release
+    needs: [release-please, build-artifacts]
+    if: ${{ needs.release-please.outputs.release_created == 'true' }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Download dist/ from build-artifacts
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
+        with:
+          name: dist
+          path: dist/
+
       - name: Upload artifacts to GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -57,7 +86,7 @@ jobs:
 
   publish-pypi:
     name: publish to PyPI
-    needs: release-please
+    needs: [release-please, build-artifacts]
     if: ${{ needs.release-please.outputs.release_created == 'true' }}
     runs-on: ubuntu-24.04
     # PyPI Trusted Publishing — see CONTRIBUTING.md for one-time setup.
@@ -71,26 +100,20 @@ jobs:
       id-token: write   # OIDC for trusted publishing
       contents: read
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Download dist/ from build-artifacts
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
         with:
-          ref: ${{ needs.release-please.outputs.tag_name }}
-          persist-credentials: false
-
-      - name: Install uv with Python 3.12
-        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
-        with:
-          python-version: '3.12'
-          enable-cache: true
-
-      - name: Build wheel + sdist
-        run: uv build
+          name: dist
+          path: dist/
 
       - name: Publish to PyPI (Trusted Publisher / OIDC)
         uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # v1.14.0
 
   # ---- Lambda Layer publishing ----------------------------------------
   # See layer/MAINTAINER.md for one-time AWS setup. Three jobs:
-  #   build-layer-zip:   build the layer ZIP and attach to the GH Release.
+  #   build-layer-zip:   download the shared `dist/` artifact from
+  #                      build-artifacts, repackage the wheel as a Lambda
+  #                      Layer ZIP, and attach to the GH Release.
   #   publish-layer:     per-region matrix; assume OIDC role; publish layer
   #                      version with public read.
   #   aggregate-arns:    collect per-region ARNs into a JSON manifest +
@@ -100,25 +123,17 @@ jobs:
 
   build-layer-zip:
     name: build Lambda Layer ZIP
-    needs: release-please
+    needs: [release-please, build-artifacts]
     if: ${{ needs.release-please.outputs.release_created == 'true' }}
     runs-on: ubuntu-24.04
     permissions:
       contents: write   # for `gh release upload`
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Download dist/ from build-artifacts
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
         with:
-          ref: ${{ needs.release-please.outputs.tag_name }}
-          persist-credentials: false
-
-      - name: Install uv with Python 3.12
-        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
-        with:
-          python-version: '3.12'
-          enable-cache: true
-
-      - name: Build wheel
-        run: uv build --wheel
+          name: dist
+          path: dist/
 
       - name: Repackage wheel as Lambda Layer ZIP
         env:
