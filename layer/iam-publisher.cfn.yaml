@@ -1,0 +1,112 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  IAM role assumed by GitHub Actions (via OIDC) to publish the cfn-handler
+  Lambda Layer across commercial regions.
+
+  Trust is scoped to runs of the `release.yml` workflow inside the
+  `igorlg/cfn-handler` repository while the `layer-publisher` environment
+  is active. Permissions are scoped to `cfn-handler*` named layers; nothing
+  else.
+
+Parameters:
+  GitHubOrg:
+    Type: String
+    Default: igorlg
+    Description: GitHub organisation/username that owns the cfn-handler repository.
+  GitHubRepo:
+    Type: String
+    Default: cfn-handler
+    Description: GitHub repository name.
+  GitHubEnvironment:
+    Type: String
+    Default: layer-publisher
+    Description: |
+      GitHub Actions environment that gates assumption of this role. Must match
+      the `environment:` field on the publish-layer job in release.yml.
+  RoleName:
+    Type: String
+    Default: cfn-handler-layer-publisher
+    Description: |
+      Name of the IAM role created by this template. Output as the role ARN.
+      Save the ARN as the `LAYER_PUBLISHER_ROLE_ARN` secret of the GitHub
+      environment named in `GitHubEnvironment`.
+  CreateOidcProvider:
+    Type: String
+    Default: 'true'
+    AllowedValues: ['true', 'false']
+    Description: |
+      Create the GitHub Actions OIDC provider in this account. Set to 'false'
+      if your account already has the OIDC provider configured (an account
+      can have at most one provider for a given URL).
+
+Conditions:
+  # The OIDC provider for GitHub Actions is account-global. If you've already
+  # deployed it (e.g. for another project), this stack will fail with
+  # "EntityAlreadyExists". Set CreateOidcProvider=false to skip creating it.
+  CreateOidcProviderCondition: !Equals [!Ref CreateOidcProvider, 'true']
+
+Resources:
+  GitHubOidcProvider:
+    Type: AWS::IAM::OIDCProvider
+    Condition: CreateOidcProviderCondition
+    Properties:
+      Url: https://token.actions.githubusercontent.com
+      ClientIdList:
+        - sts.amazonaws.com
+      # GitHub publishes its OIDC certificate thumbprints; AWS now resolves
+      # them automatically as of June 2023, so the ThumbprintList field is
+      # no longer required (a placeholder is acceptable; AWS ignores it).
+      ThumbprintList:
+        - 6938fd4d98bab03faadb97b34396831e3780aea1
+
+  LayerPublisherRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Ref RoleName
+      Description: !Sub >
+        Assumed by GitHub Actions runs of release.yml in
+        ${GitHubOrg}/${GitHubRepo} (environment: ${GitHubEnvironment}) to
+        publish the cfn-handler Lambda Layer across commercial regions.
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !Sub arn:aws:iam::${AWS::AccountId}:oidc-provider/token.actions.githubusercontent.com
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+              StringLike:
+                token.actions.githubusercontent.com:sub: !Sub repo:${GitHubOrg}/${GitHubRepo}:environment:${GitHubEnvironment}
+      Policies:
+        - PolicyName: PublishLayerVersions
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              # Publish layer versions; grant public read; introspect
+              # existing versions and policies. Resource scope: any region,
+              # but only layers named cfn-handler* in this account.
+              - Sid: PublishCfnHandlerLayers
+                Effect: Allow
+                Action:
+                  - lambda:PublishLayerVersion
+                  - lambda:GetLayerVersion
+                  - lambda:GetLayerVersionPolicy
+                  - lambda:AddLayerVersionPermission
+                  - lambda:RemoveLayerVersionPermission
+                  - lambda:ListLayerVersions
+                Resource:
+                  - !Sub arn:aws:lambda:*:${AWS::AccountId}:layer:cfn-handler
+                  - !Sub arn:aws:lambda:*:${AWS::AccountId}:layer:cfn-handler:*
+
+Outputs:
+  RoleArn:
+    Description: |
+      ARN of the layer-publisher role. Save this as the
+      LAYER_PUBLISHER_ROLE_ARN secret of the `layer-publisher` GitHub
+      environment in igorlg/cfn-handler.
+    Value: !GetAtt LayerPublisherRole.Arn
+    Export:
+      Name: !Sub ${AWS::StackName}-RoleArn

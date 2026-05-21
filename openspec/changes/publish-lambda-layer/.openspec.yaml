@@ -1,0 +1,6 @@
+schema: spec-driven
+created: 2026-05-21
+goal: Users can install cfn-handler in their Lambda functions either by
+  downloading the layer ZIP from a GH Release, or (more conveniently) by
+  referencing a public per-region Layer ARN published from a maintainer-managed
+  AWS account
