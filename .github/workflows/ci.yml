@@ -103,4 +103,4 @@ jobs:
         run: uv run pyright src/cfn_handler
 
       - name: cfn-lint over examples
-        run: uvx cfn-lint examples/**/template.yaml
+        run: uv run cfn-lint examples/**/template.yaml
