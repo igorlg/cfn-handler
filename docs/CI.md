@@ -294,7 +294,7 @@ CI uses `uv sync --frozen` instead:
 `uv.lock`; only the local project's own version is read from the current
 `pyproject.toml`. The trade-off: a contributor adding a runtime
 dependency to `pyproject.toml` without running `uv lock` will not be
-caught by CI — see [Lockfile policy in CONTRIBUTING.md](../CONTRIBUTING.md#lockfile-uvlock).
+caught by CI — see [Lockfile policy in CONTRIBUTING.md](../.github/CONTRIBUTING.md#lockfile-uvlock).
 
 ### Recovery from a failed publish
 
@@ -700,5 +700,5 @@ mode this postmortem describes.
 ---
 
 For the broader contribution workflow (commit conventions, branching,
-local checks), see [CONTRIBUTING.md](../CONTRIBUTING.md). For library
+local checks), see [CONTRIBUTING.md](../.github/CONTRIBUTING.md). For library
 behaviour specs, see `openspec/specs/`.

@@ -112,7 +112,7 @@ jobs:
     needs: [release-please, build-artifacts]
     if: ${{ needs.release-please.outputs.release_created == 'true' }}
     runs-on: ubuntu-24.04
-    # PyPI Trusted Publishing — see CONTRIBUTING.md for one-time setup.
+    # PyPI Trusted Publishing — see .github/CONTRIBUTING.md for one-time setup.
     # The Trusted Publisher must be configured at:
     #   https://pypi.org/manage/project/cfn-handler/settings/publishing/
     # with: repo=igorlg/cfn-handler, workflow=release.yml, environment=pypi.

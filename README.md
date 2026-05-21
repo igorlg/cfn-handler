@@ -141,7 +141,7 @@ change between minor versions.
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the development workflow,
+See [CONTRIBUTING.md](.github/CONTRIBUTING.md) for the development workflow,
 commit conventions, and lockfile policy. For contributors who use Nix, a
 `flake.nix` provides a reproducible dev shell. The CI/release pipeline
 itself is documented in [docs/CI.md](docs/CI.md), including the
