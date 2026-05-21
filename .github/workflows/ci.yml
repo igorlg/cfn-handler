@@ -1,18 +1,23 @@
 name: CI
 
+# PR-only gating model. The post-merge `push: main` trigger was removed
+# in `refactor-ci-triggers-and-protect-main` because branch protection on
+# `main` requires `CI passed` to succeed before a merge, so re-running CI
+# on the merge commit is redundant. See docs/CI.md "Triggers and
+# concurrency" for the rationale.
 on:
-  push:
-    branches: [main]
   pull_request:
     branches: [main]
 
 permissions:
   contents: read
 
-# Cancel superseded PR runs to save CI minutes; never cancel main-branch runs.
+# Cancel superseded PR runs to save CI minutes. Every event is now a
+# pull_request (no main-branch runs to protect against), so we can
+# cancel-in-progress unconditionally.
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: true
 
 env:
   # Cache and venv may live on different filesystems under `act`; copying
@@ -114,5 +119,26 @@ jobs:
       - name: pyright strict
         run: uv run pyright src/cfn_handler
 
-      - name: cfn-lint over examples
-        run: uv run cfn-lint examples/**/template.yaml
+  # Sentinel aggregator: one required status check that succeeds only when
+  # every dependent job is `success` or `skipped`. Branch protection points
+  # at `CI passed` (this job) so adding/removing matrix entries or
+  # supplementary jobs does not require updating the protection JSON.
+  #
+  # FOOTGUN: when adding a new job to this workflow, also add it to
+  # `needs:` below — otherwise this job reports green even if the new job
+  # fails. See docs/CI.md "Adding a new workflow" checklist.
+  ci-pass:
+    name: CI passed
+    if: always()
+    needs: [test, lint]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: All required jobs passed (or were skipped)
+        env:
+          TEST_RESULT: ${{ needs.test.result }}
+          LINT_RESULT: ${{ needs.lint.result }}
+        run: |
+          for r in "$TEST_RESULT" "$LINT_RESULT"; do
+            [[ "$r" == "success" || "$r" == "skipped" ]] || exit 1
+          done
+          echo "All CI jobs passed."

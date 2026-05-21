@@ -87,14 +87,15 @@ build-inspect: build
 
 # Run the GH Actions matrix locally (linux/amd64 + arm64). Requires `act`:
 #   brew install act
+# Uses `pull_request` event because ci.yml is PR-only (no push:main trigger).
 test-matrix: _check-act
     #!/usr/bin/env bash
     set -uo pipefail
     echo "Running amd64 and arm64 jobs in parallel via act..."
-    act -j test --container-architecture linux/amd64 --matrix runner:ubuntu-24.04 \
+    act pull_request -j test --container-architecture linux/amd64 --matrix runner:ubuntu-24.04 \
         --action-cache-path /tmp/act-cache-amd64 &
     pids=("$!")
-    act -j test --container-architecture linux/arm64 --matrix runner:ubuntu-24.04-arm \
+    act pull_request -j test --container-architecture linux/arm64 --matrix runner:ubuntu-24.04-arm \
         --action-cache-path /tmp/act-cache-arm64 &
     pids+=("$!")
     failed=0
@@ -104,10 +105,10 @@ test-matrix: _check-act
     exit "$failed"
 
 test-matrix-amd64: _check-act
-    act -j test --container-architecture linux/amd64 --matrix runner:ubuntu-24.04
+    act pull_request -j test --container-architecture linux/amd64 --matrix runner:ubuntu-24.04
 
 test-matrix-arm64: _check-act
-    act -j test --container-architecture linux/arm64 --matrix runner:ubuntu-24.04-arm
+    act pull_request -j test --container-architecture linux/arm64 --matrix runner:ubuntu-24.04-arm
 
 # Run every GH Actions job that gates merging a PR to main (Dependabot vet).
 #
@@ -126,8 +127,9 @@ test-matrix-arm64: _check-act
 #      have real side effects on the repo (release-please-action
 #      authenticated as the user could open or update real release PRs).
 #   3a. ci.yml `test` matrix — amd64 + arm64 × 5 Python versions (~3-5 min).
-#   3b. ci.yml `lint` job — ruff, ruff-format, mypy strict, pyright strict,
-#       cfn-lint over examples (~30s).
+#   3b. ci.yml `lint` job — ruff, ruff-format, mypy strict, pyright strict
+#       (~30s).
+#   3c. examples-lint.yml — cfn-lint over examples/**/template.yaml (~30s).
 #   4. codeql.yml — Python security-and-quality scan (~1-8 min, slower
 #      on first run while CodeQL bundle downloads).
 gha-pre-release: _check-act _check-gh-token _check-docker
@@ -139,13 +141,13 @@ gha-pre-release: _check-act _check-gh-token _check-docker
       --secret GITHUB_TOKEN="$(gh auth token)"
     )
 
-    echo "==> [1/5] secure-workflows.yml — SHA-pin enforcement"
-    act push -W .github/workflows/secure-workflows.yml "${common_flags[@]}" \
+    echo "==> [1/6] secure-workflows.yml — SHA-pin enforcement"
+    act pull_request -W .github/workflows/secure-workflows.yml "${common_flags[@]}" \
         --action-cache-path /tmp/act-cache-secure-workflows \
         || { echo; echo "FAIL: secure-workflows.yml"; exit 1; }
 
     echo
-    echo "==> [2/5] Docker action manifest probe"
+    echo "==> [2/6] Docker action manifest probe"
     # Match `uses: <owner>/<repo>@<sha>` in every workflow file, then for any
     # action that publishes a Docker image at ghcr.io/<owner>/<repo>, verify
     # the SHA resolves to a real image. Currently this is just
@@ -187,18 +189,24 @@ gha-pre-release: _check-act _check-gh-token _check-docker
     echo "  (all Docker action images resolve)"
 
     echo
-    echo "==> [3a/5] ci.yml — test matrix (amd64 + arm64 in parallel)"
+    echo "==> [3a/6] ci.yml — test matrix (amd64 + arm64 in parallel)"
     just test-matrix \
         || { echo; echo "FAIL: ci.yml test matrix"; exit 1; }
 
     echo
-    echo "==> [3b/5] ci.yml — lint+typecheck job"
-    act push -W .github/workflows/ci.yml "${common_flags[@]}" --job lint \
+    echo "==> [3b/6] ci.yml — lint+typecheck job"
+    act pull_request -W .github/workflows/ci.yml "${common_flags[@]}" --job lint \
         --action-cache-path /tmp/act-cache-lint \
         || { echo; echo "FAIL: ci.yml lint job"; exit 1; }
 
     echo
-    echo "==> [4/5] codeql.yml — Python security analysis"
+    echo "==> [3c/6] examples-lint.yml — cfn-lint over examples"
+    act pull_request -W .github/workflows/examples-lint.yml "${common_flags[@]}" \
+        --action-cache-path /tmp/act-cache-examples-lint \
+        || { echo; echo "FAIL: examples-lint.yml"; exit 1; }
+
+    echo
+    echo "==> [4/6] codeql.yml — Python security analysis"
     act push -W .github/workflows/codeql.yml "${common_flags[@]}" \
         --action-cache-path /tmp/act-cache-codeql \
         || { echo; echo "FAIL: codeql.yml"; exit 1; }

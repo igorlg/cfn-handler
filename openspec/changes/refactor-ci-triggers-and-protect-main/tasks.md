@@ -2,28 +2,28 @@
 
 ## 1. Workflow YAML changes
 
-- [ ] 1.1 Edit `.github/workflows/ci.yml`: remove the `push: branches: [main]` trigger from the `on:` section. Keep `pull_request: branches: [main]`.
-- [ ] 1.2 Edit `.github/workflows/ci.yml`: remove the `cfn-lint over examples` step from the `lint` job (the last step, `uv run cfn-lint examples/**/template.yaml`).
-- [ ] 1.3 Edit `.github/workflows/ci.yml`: add a new job named `ci-pass` at the end (after `lint`). Job: `name: CI passed`, `if: always()`, `needs: [test, lint]`, single shell step that loops over `${{ needs.test.result }}` and `${{ needs.lint.result }}`, exiting non-zero if either is not `success` or `skipped`.
-- [ ] 1.4 Create `.github/workflows/examples-lint.yml`: PR-only trigger (`pull_request: branches: [main]`), `paths: ['examples/**', '.github/workflows/examples-lint.yml']`, top-level `permissions: contents: read`, single job `cfn-lint` on `ubuntu-24.04` that checks out, sets up uv (cache-suffix `examples-lint`), runs `uv sync --frozen --only-group lint` and `uv run cfn-lint examples/**/template.yaml`. SHA-pin every action with version comments.
-- [ ] 1.5 Edit `.github/workflows/secure-workflows.yml`: remove the `push: branches: [main]` (with paths) trigger. Keep `pull_request: branches: [main]` with `paths: ['.github/workflows/**']`.
+- [x] 1.1 Edit `.github/workflows/ci.yml`: remove the `push: branches: [main]` trigger from the `on:` section. Keep `pull_request: branches: [main]`.
+- [x] 1.2 Edit `.github/workflows/ci.yml`: remove the `cfn-lint over examples` step from the `lint` job (the last step, `uv run cfn-lint examples/**/template.yaml`).
+- [x] 1.3 Edit `.github/workflows/ci.yml`: add a new job named `ci-pass` at the end (after `lint`). Job: `name: CI passed`, `if: always()`, `needs: [test, lint]`, single shell step that loops over `${{ needs.test.result }}` and `${{ needs.lint.result }}`, exiting non-zero if either is not `success` or `skipped`.
+- [x] 1.4 Create `.github/workflows/examples-lint.yml`: PR-only trigger (`pull_request: branches: [main]`), `paths: ['examples/**', '.github/workflows/examples-lint.yml']`, top-level `permissions: contents: read`, single job `cfn-lint` on `ubuntu-24.04` that checks out, sets up uv (cache-suffix `examples-lint`), runs `uv sync --frozen --only-group lint` and `uv run cfn-lint examples/**/template.yaml`. SHA-pin every action with version comments.
+- [x] 1.5 Edit `.github/workflows/secure-workflows.yml`: remove the `push: branches: [main]` (with paths) trigger. Keep `pull_request: branches: [main]` with `paths: ['.github/workflows/**']`.
 
 ## 2. Justfile
 
-- [ ] 2.1 Edit `gha-pre-release` recipe in `justfile`: insert a step `3a` between the existing step 3 (test-matrix) and step 4 (codeql), invoking `act push -W .github/workflows/examples-lint.yml --container-architecture linux/amd64 --secret GITHUB_TOKEN="$(gh auth token)" --action-cache-path /tmp/act-cache-examples-lint`. Update the recipe doc-comment header to mention `examples-lint.yml` in the steps list.
+- [x] 2.1 Edit `gha-pre-release` recipe in `justfile`: insert a step `3a` between the existing step 3 (test-matrix) and step 4 (codeql), invoking `act push -W .github/workflows/examples-lint.yml --container-architecture linux/amd64 --secret GITHUB_TOKEN="$(gh auth token)" --action-cache-path /tmp/act-cache-examples-lint`. Update the recipe doc-comment header to mention `examples-lint.yml` in the steps list.
 
 ## 3. Docs
 
-- [ ] 3.1 Update `docs/CI.md` "Workflow inventory" section: split the old `cfn-lint` row into its own `examples-lint.yml` entry; flag it as informational (not required for merge).
-- [ ] 3.2 Update `docs/CI.md` "Triggers and concurrency" section: document the new PR-only model for `ci.yml` and `secure-workflows.yml`; explain why CodeQL stays dual-triggered.
-- [ ] 3.3 Update `docs/CI.md` "Branch protection" section: remove the "currently disabled" note; document the active configuration (required checks list, admin bypass, linear history); include the `gh api -X PUT` JSON command as the reproducible recipe.
-- [ ] 3.4 Update `docs/CI.md` "Adding a new workflow" checklist: add an item "if you add a job to `ci.yml`, also add it to `ci-pass`'s `needs:` list".
+- [x] 3.1 Update `docs/CI.md` "Workflow inventory" section: split the old `cfn-lint` row into its own `examples-lint.yml` entry; flag it as informational (not required for merge).
+- [x] 3.2 Update `docs/CI.md` "Triggers and concurrency" section: document the new PR-only model for `ci.yml` and `secure-workflows.yml`; explain why CodeQL stays dual-triggered.
+- [x] 3.3 Update `docs/CI.md` "Branch protection" section: remove the "currently disabled" note; document the active configuration (required checks list, admin bypass, linear history); include the `gh api -X PUT` JSON command as the reproducible recipe.
+- [x] 3.4 Update `docs/CI.md` "Adding a new workflow" checklist: add an item "if you add a job to `ci.yml`, also add it to `ci-pass`'s `needs:` list".
 
 ## 4. Local verification (before push)
 
-- [ ] 4.1 Run `just ci-check` — pure tests, no workflow changes affect this; sanity check.
-- [ ] 4.2 Run `just gha-pre-release` — exercises every changed workflow under `act`. Expect green.
-- [ ] 4.3 Inspect each workflow file diff one last time: `gh secret list` (no inadvertent secret access), permission scopes, SHA-pinned actions still pinned.
+- [x] 4.1 Run `just ci-check` — pure tests, no workflow changes affect this; sanity check.
+- [x] 4.2 Run `just gha-pre-release` — exercises every changed workflow under `act`. Expect green.
+- [x] 4.3 Inspect each workflow file diff one last time: `gh secret list` (no inadvertent secret access), permission scopes, SHA-pinned actions still pinned.
 
 ## 5. PR open + cloud CI
 
@@ -47,5 +47,5 @@
 
 ## 8. Validate + archive
 
-- [ ] 8.1 `openspec validate refactor-ci-triggers-and-protect-main --strict` should pass before merge.
+- [x] 8.1 `openspec validate refactor-ci-triggers-and-protect-main --strict` should pass before merge.
 - [ ] 8.2 After PR is merged: `openspec archive refactor-ci-triggers-and-protect-main`. The MODIFIED requirements merge into `openspec/specs/ci-infrastructure/spec.md`.

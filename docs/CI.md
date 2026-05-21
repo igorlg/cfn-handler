@@ -4,21 +4,14 @@ This document describes the CI and release infrastructure for `cfn-handler`:
 what runs when, why each decision was made, and how contributors replay the
 pipeline locally before merging.
 
-> **Note**: this captures the *current* shipped state. A follow-up change
-> ([`refactor-ci-triggers-and-protect-main`][next-change]) will move
-> `ci.yml` and `secure-workflows.yml` to PR-only triggers, add a sentinel
-> aggregator, split `cfn-lint` into its own workflow, and enable branch
-> protection on `main`. Update this doc when that lands.
-
-[next-change]: ../openspec/changes/refactor-ci-triggers-and-protect-main/proposal.md
-
 ## Overview
 
-Five workflows under `.github/workflows/`:
+Six workflows under `.github/workflows/`:
 
-- **`ci.yml`** — tests, lint, type-check; the main gate.
+- **`ci.yml`** — tests, lint, type-check; the main gate (PR-only).
 - **`codeql.yml`** — Python security-and-quality scan.
 - **`dependency-review.yml`** — license + vulnerability gate on PRs.
+- **`examples-lint.yml`** — cfn-lint over example SAM templates (PR-only, path-filtered).
 - **`release.yml`** — release-please + PyPI Trusted Publishing OIDC.
 - **`secure-workflows.yml`** — enforces commit-SHA pinning of every action.
 
@@ -37,28 +30,34 @@ with no API tokens stored anywhere.
 
 | File | Triggers | Jobs | Required for merge? |
 |---|---|---|---|
-| `ci.yml` | `pull_request: main`, `push: main` | matrix `test (py3.10..3.14 × ubuntu-24.04 [+arm])`, `lint + typecheck` | (planned: yes via sentinel) |
+| `ci.yml` | `pull_request: main` | matrix `test (py3.10..3.14 × ubuntu-24.04 [+arm])`, `lint + typecheck`, `ci-pass` aggregator | yes (`CI passed`) |
 | `codeql.yml` | `pull_request: main`, `push: main`, weekly cron | `analyze (python)` | yes |
 | `dependency-review.yml` | `pull_request: main` | `review dependencies` | yes |
+| `examples-lint.yml` | `pull_request: main` (paths: `examples/**`) | `cfn-lint over examples` | no (informational) |
 | `release.yml` | `push: main`, `workflow_dispatch` | `release-please bot`, `build + attach release artifacts`, `publish to PyPI` | n/a (post-merge) |
-| `secure-workflows.yml` | `pull_request: main` (paths: `.github/workflows/**`), `push: main` (same paths) | `ensure SHA-pinned actions` | yes (when applicable) |
+| `secure-workflows.yml` | `pull_request: main` (paths: `.github/workflows/**`) | `ensure SHA-pinned actions` | yes (when applicable) |
 
-Note: branch protection is currently **disabled** on `main`; "Required for
-merge" reflects intended state once the refactor change lands.
+Branch protection on `main` requires the four "yes" checks above (the
+last column). `examples-lint` is intentionally not required — see the
+[Branch protection](#branch-protection) section for why.
 
 ## Triggers and concurrency
 
 ### `ci.yml`
 
-- Trigger: PRs against `main` and pushes to `main` (today). Future: PR-only.
+- Trigger: PR-only against `main`. Branch protection requires the
+  `CI passed` aggregator (the `ci-pass` job at the end of the workflow)
+  to succeed before a PR can merge, which makes a separate `push: main`
+  trigger redundant — re-running CI on the merge commit was waste
+  without a corresponding gating effect.
 - Concurrency:
   ```yaml
   concurrency:
     group: ci-${{ github.ref }}
-    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    cancel-in-progress: true
   ```
-  PR runs cancel when superseded by a newer push to the same PR. `main`
-  runs are never cancelled — partial test results on `main` are misleading.
+  PR runs cancel when superseded by a newer push to the same PR. With no
+  `push: main` trigger, the cancel-in-progress condition is unconditional.
 
 ### `codeql.yml`
 
@@ -77,9 +76,18 @@ merge" reflects intended state once the refactor change lands.
 
 ### `secure-workflows.yml`
 
-- Trigger: PR + push to `main`, with `paths: ['.github/workflows/**']` on
-  both. The path filter saves CI minutes — non-workflow PRs don't trigger
-  the SHA-pin checker. Future: PR-only.
+- Trigger: PR-only with `paths: ['.github/workflows/**']`. The path filter
+  saves CI minutes — non-workflow PRs don't trigger the SHA-pin checker.
+  Re-running on the merge commit was redundant once branch protection
+  requires this check to pass before merge.
+
+### `examples-lint.yml`
+
+- Trigger: PR-only with `paths: ['examples/**', '.github/workflows/examples-lint.yml']`.
+  Standalone workflow for `cfn-lint` over example SAM templates. NOT a
+  required status check (see [Branch protection](#branch-protection) for
+  the path-filter / required-check interaction problem). Broken example
+  templates show a red X on the PR but don't block the merge.
 
 ### `dependency-review.yml`
 
@@ -417,20 +425,71 @@ The `gha-pre-release` recipe handles this transparently.
 
 ## Branch protection
 
-**Currently disabled.** This is a transitional state; the
-[`refactor-ci-triggers-and-protect-main`][next-change] change enables it.
+Enabled on `main` with the following required status checks:
 
-When enabled, the rule on `main` will require:
-
-- `CI passed` — sentinel aggregator from `ci.yml`
+- `CI passed` — sentinel aggregator from `ci.yml` (covers the test
+  matrix and the lint+typecheck job in one check; resilient to matrix
+  changes)
 - `analyze (python)` — CodeQL
 - `review dependencies` — dependency-review-action
 - `ensure SHA-pinned actions` — secure-workflows zgosalvez
 
-With `enforce_admins: false` (admin bypass for emergencies),
-`required_linear_history: true`, no PR review requirement (solo dev),
-no force-push, no deletion. The reproducible `gh api -X PUT` JSON
-will live in that change's `tasks.md` migration plan.
+Settings: `strict: true` (require branches up-to-date before merge),
+`enforce_admins: false` (admin bypass for emergencies),
+`required_linear_history: true` (matches squash-merge convention),
+`required_pull_request_reviews: null` (no review requirement; solo dev
+pattern), `allow_force_pushes: false`, `allow_deletions: false`.
+
+### Why `examples-lint` is not required
+
+`examples-lint.yml` is path-filtered to `examples/**`. A PR that doesn't
+touch `examples/**` doesn't trigger the workflow at all, and GitHub
+branch protection treats a missing required check as not-green —
+blocking the merge. Three options were considered:
+
+1. **Make required, no path filter** → wastes ~30s on every non-examples PR.
+2. **Make required, path filter** → blocks every non-examples PR.
+3. **Not required, path filter** → fast; broken example templates show
+   red but don't block merge.
+
+Option 3 was chosen because examples are pedagogical, not shipped code.
+A future change adopting [`dorny/paths-filter`][dorny] will let us promote
+`examples-lint` to required via a sentinel aggregator that runs always.
+
+[dorny]: https://github.com/dorny/paths-filter
+
+### Reproducible setup
+
+Branch protection was enabled via the GitHub REST API. The exact JSON
+used (committed for reproducibility):
+
+```bash
+gh api -X PUT /repos/igorlg/cfn-handler/branches/main/protection \
+  --input - <<'EOF'
+{
+  "required_status_checks": {
+    "strict": true,
+    "contexts": [
+      "CI passed",
+      "analyze (python)",
+      "review dependencies",
+      "ensure SHA-pinned actions"
+    ]
+  },
+  "enforce_admins": false,
+  "required_pull_request_reviews": null,
+  "restrictions": null,
+  "required_linear_history": true,
+  "allow_force_pushes": false,
+  "allow_deletions": false,
+  "block_creations": false,
+  "required_conversation_resolution": false
+}
+EOF
+```
+
+To inspect the current rule: `gh api /repos/igorlg/cfn-handler/branches/main/protection`.
+To remove (rollback): `gh api -X DELETE /repos/igorlg/cfn-handler/branches/main/protection`.
 
 ## Adding a new workflow
 
@@ -446,15 +505,20 @@ Checklist before opening the PR:
 - [ ] **`id-token: write`** only if the job actually uses OIDC (PyPI,
       AWS STS, etc.). Document why in a comment.
 - [ ] **Concurrency group** if PR-triggered: `concurrency.group: <name>-${{ github.ref }}`,
-      `cancel-in-progress: ${{ github.event_name == 'pull_request' }}`.
+      `cancel-in-progress: true`.
 - [ ] **Path filters** if the workflow only cares about specific files.
       Be aware of the [required-check + skipped-check][gh-skipped] hazard
-      if the workflow is required for merge.
+      if the workflow is required for merge — see `examples-lint.yml`'s
+      "informational, not required" treatment for the workaround until
+      we adopt `dorny/paths-filter`.
 - [ ] **Document in this file**: add a row to "Workflow inventory", and
       explain the trigger rationale in "Triggers and concurrency".
 - [ ] If you added a new **job to `ci.yml`**, also add it to `ci-pass`'s
-      `needs:` list (when the sentinel lands). Otherwise the aggregator
-      reports green even when your job fails.
+      `needs:` list. Otherwise the aggregator reports green even when
+      your job fails — silent footgun, easy to miss in code review.
+- [ ] If the new workflow defines a status check that should gate
+      merges, add its name to the `required_status_checks.contexts`
+      list in branch protection (see [Branch protection](#branch-protection)).
 - [ ] Run `just gha-pre-release` locally to verify before pushing.
 
 [gh-skipped]: https://github.com/orgs/community/discussions/13690

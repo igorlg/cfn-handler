@@ -1,0 +1,62 @@
+name: examples-lint
+
+# Standalone workflow for cfn-lint over the example SAM templates.
+# PR-only with a path filter on examples/** so unrelated PRs don't pay
+# the cost. NOT a required status check for branch protection: a
+# path-filtered workflow that doesn't trigger on a given PR has no
+# status check at all, and GitHub branch protection treats "missing"
+# as not-green, blocking unrelated merges. Promoted to required when
+# we adopt dorny/paths-filter (deferred follow-up). Until then, broken
+# example templates show a red X on the PR but don't block the merge.
+#
+# See docs/CI.md "Triggers and concurrency" / "Branch protection" for
+# the full rationale.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'examples/**'
+      - '.github/workflows/examples-lint.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: examples-lint-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  UV_LINK_MODE: copy
+
+jobs:
+  cfn-lint:
+    name: cfn-lint over examples
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      # Workaround: under `act`, JS-action post steps run via `docker exec`
+      # with a stripped PATH that doesn't include the acttoolcache dir where
+      # Node lives. Real GH-hosted runners are unaffected.
+      - name: act compat — expose node on standard PATH
+        if: env.ACT == 'true'
+        run: |
+          set -eu
+          NODE_BIN=$(find /opt/acttoolcache/node -name node -type f -executable 2>/dev/null | head -1)
+          if [ -n "$NODE_BIN" ] && [ ! -e /usr/local/bin/node ]; then
+            ln -sf "$NODE_BIN" /usr/local/bin/node
+          fi
+          node --version
+
+      - name: Install uv with Python 3.12
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          python-version: '3.12'
+          enable-cache: true
+          cache-suffix: examples-lint
+
+      - name: Install lint dependencies
+        run: uv sync --frozen --only-group lint
+
+      - name: cfn-lint over examples
+        run: uv run cfn-lint examples/**/template.yaml

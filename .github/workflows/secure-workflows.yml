@@ -5,12 +5,11 @@ name: secure-workflows
 # to make the build reproducible and the supply chain auditable.
 #
 # This workflow fails the PR if any action under .github/workflows/ uses a
-# tag or branch instead of a commit SHA.
+# tag or branch instead of a commit SHA. PR-only — there is no value in
+# re-running this on the merge commit; if a tag-pinned action got past PR
+# review (admin bypass), `main`-side enforcement is still too late.
 
 on:
-  push:
-    branches: [main]
-    paths: ['.github/workflows/**']
   pull_request:
     branches: [main]
     paths: ['.github/workflows/**']
