@@ -138,6 +138,20 @@ public API or the spec'd capabilities, use OpenSpec.
   act, and cfn-lint. The flake follows the dendritic / flake-parts
   pattern.
 
+## Lockfile (`uv.lock`)
+
+`uv.lock` is committed and is the source of truth for transitive dependency
+versions. After **any** change to `pyproject.toml` dependencies, run
+`uv lock` and commit the resulting `uv.lock` in the same PR.
+
+CI installs with `uv sync --frozen` (not `--locked`). This is intentional:
+release-please bumps `version` in `pyproject.toml` for releases but cannot
+also run `uv lock`, so the local project's version drifts in `uv.lock`
+between releases. `--frozen` tolerates that single drift while still
+pinning every dependency version to the lockfile. **It does not catch a
+contributor forgetting to run `uv lock`** after adding a dep — please do
+so manually.
+
 ## Reporting security issues
 
 Please do **not** open public issues for security vulnerabilities. Use

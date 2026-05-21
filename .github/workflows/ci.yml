@@ -51,7 +51,12 @@ jobs:
           enable-cache: true
 
       - name: Install dependencies
-        run: uv sync --locked --only-group test
+        # Use `--frozen` rather than `--locked` so release-please's bump of
+        # pyproject.toml's `version` (which release-please can't pair with a
+        # `uv lock`) does not break post-merge CI. `--frozen` still installs
+        # exactly the dep versions in uv.lock; only the local project's own
+        # version is read from the (current) pyproject.toml.
+        run: uv sync --frozen --only-group test
 
       - name: Run tests with coverage
         run: uv run pytest --cov --cov-report=xml --cov-report=term
@@ -88,7 +93,7 @@ jobs:
           enable-cache: true
 
       - name: Install lint dependencies
-        run: uv sync --locked --only-group lint
+        run: uv sync --frozen --only-group lint
 
       - name: Ruff check
         run: uv run ruff check src tests examples
