@@ -35,7 +35,7 @@ with no API tokens stored anywhere.
 | `dependency-review.yml` | `pull_request: main` | `review dependencies` | yes |
 | `examples-lint.yml` | `pull_request: main` (paths: `examples/**`) | `cfn-lint over examples` | no (informational) |
 | `release.yml` | `push: main`, `workflow_dispatch` | `release-please bot`, `build + attach release artifacts`, `publish to PyPI` | n/a (post-merge) |
-| `secure-workflows.yml` | `pull_request: main` (paths: `.github/workflows/**`) | `ensure SHA-pinned actions` | yes (when applicable) |
+| `secure-workflows.yml` | `pull_request: main` | `ensure SHA-pinned actions` | yes |
 
 Branch protection on `main` requires the four "yes" checks above (the
 last column). `examples-lint` is intentionally not required — see the
@@ -76,10 +76,15 @@ last column). `examples-lint` is intentionally not required — see the
 
 ### `secure-workflows.yml`
 
-- Trigger: PR-only with `paths: ['.github/workflows/**']`. The path filter
-  saves CI minutes — non-workflow PRs don't trigger the SHA-pin checker.
-  Re-running on the merge commit was redundant once branch protection
-  requires this check to pass before merge.
+- Trigger: PR-only, **no path filter**. Runs on every PR. Originally
+  path-filtered to `.github/workflows/**` for cost savings, but that
+  combined with branch protection requiring the `ensure SHA-pinned
+  actions` status check left the check in `Expected` state forever
+  on PRs that didn't touch workflows — blocking unrelated merges.
+  Removing the filter is the cheap fix (~5s per PR); the proper
+  long-term fix is `dorny/paths-filter` driving a sentinel inside
+  the workflow itself, deferred to the same follow-up that promotes
+  `examples-lint` to required.
 
 ### `examples-lint.yml`
 
@@ -435,10 +440,26 @@ Enabled on `main` with the following required status checks:
 - `ensure SHA-pinned actions` — secure-workflows zgosalvez
 
 Settings: `strict: true` (require branches up-to-date before merge),
-`enforce_admins: false` (admin bypass for emergencies),
+`enforce_admins: false` (admin bypass for emergencies — see note below),
 `required_linear_history: true` (matches squash-merge convention),
-`required_pull_request_reviews: null` (no review requirement; solo dev
-pattern), `allow_force_pushes: false`, `allow_deletions: false`.
+`required_pull_request_reviews: { required_approving_review_count: 0 }`
+(require a PR but no review approvals — solo dev pattern; the field is
+non-null so direct pushes are blocked for non-admins, with `0` reviews
+so you don't self-block your own PRs), `allow_force_pushes: false`,
+`allow_deletions: false`.
+
+> **Note on admin bypass.** With `enforce_admins: false`, repository
+> admins can override required status checks, the PR-required rule,
+> and linear-history. Force-pushes and deletions are blocked for
+> admins too (those settings are not under `enforce_admins` control).
+> Admin override emits a `Bypassed rule violations:` warning in the
+> push response but proceeds. The trade-off is intentional:
+> `enforce_admins: true` would also block release-please's bot PRs
+> from being merged (bot PRs don't trigger CI under `GITHUB_TOKEN`,
+> so required checks would always be "missing"), forcing either a
+> protection-toggle dance per release or a Personal Access Token
+> setup for `release-please-action`. Documented as a known
+> trade-off; revisit via a separate change if needed.
 
 ### Why `examples-lint` is not required
 
@@ -477,7 +498,12 @@ gh api -X PUT /repos/igorlg/cfn-handler/branches/main/protection \
     ]
   },
   "enforce_admins": false,
-  "required_pull_request_reviews": null,
+  "required_pull_request_reviews": {
+    "required_approving_review_count": 0,
+    "dismiss_stale_reviews": false,
+    "require_code_owner_reviews": false,
+    "require_last_push_approval": false
+  },
   "restrictions": null,
   "required_linear_history": true,
   "allow_force_pushes": false,

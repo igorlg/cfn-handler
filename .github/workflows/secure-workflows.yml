@@ -8,11 +8,16 @@ name: secure-workflows
 # tag or branch instead of a commit SHA. PR-only — there is no value in
 # re-running this on the merge commit; if a tag-pinned action got past PR
 # review (admin bypass), `main`-side enforcement is still too late.
+#
+# Runs on EVERY PR (no paths filter), even those that don't touch
+# .github/workflows/**, because branch protection requires the
+# `ensure SHA-pinned actions` check and a path-filtered workflow that
+# doesn't trigger leaves the required check in "Expected" state forever
+# (blocking unrelated PRs from merging). The cost is ~5 seconds per PR.
 
 on:
   pull_request:
     branches: [main]
-    paths: ['.github/workflows/**']
 
 permissions:
   contents: read
