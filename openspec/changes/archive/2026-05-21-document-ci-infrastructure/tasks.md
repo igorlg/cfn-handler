@@ -36,4 +36,4 @@
 
 ## 6. Archive (post-merge)
 
-- [ ] 6.1 After PR #7 is merged: `openspec archive document-ci-infrastructure`. Specs move from the change directory to `openspec/specs/ci-infrastructure/`.
+- [x] 6.1 After PR #7 is merged: `openspec archive document-ci-infrastructure`. Specs move from the change directory to `openspec/specs/ci-infrastructure/`.
