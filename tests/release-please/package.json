@@ -6,7 +6,7 @@
   "scripts": {
     "validate": "node validate-uv-lock-updater.js"
   },
-  "dependencies": {
+  "devDependencies": {
     "release-please": "17.3.0"
   }
 }

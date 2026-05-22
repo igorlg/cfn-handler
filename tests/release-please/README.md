@@ -80,7 +80,7 @@ When you bump `googleapis/release-please-action` in `release.yml`:
    `package.json` declares it; e.g. action v4.4.1's `package.json`
    pinned `release-please` to `^17.1.3` and shipped with `17.3.0` in
    the action's `package-lock.json`.
-2. Update `dependencies.release-please` here to match.
+2. Update `devDependencies.release-please` here to match.
 3. Re-run `npm install`; commit the updated `package-lock.json`.
 4. Re-run this validator. If anything in the output changes (especially
    the negative test going from FAIL→PASS, suggesting #2693 has

@@ -55,8 +55,8 @@ be dropped.
 
 ## 8. Open PR
 
-- [ ] 8.1 Push the branch `ci/release-please-sync-uv-lock` to origin: `git push -u origin ci/release-please-sync-uv-lock`
-- [ ] 8.2 Open the PR via `gh pr create` against `main`. Title: `ci(release): sync uv.lock from release-please and flip CI to --locked`. Body links to the proposal and the three upstream issues (#2561, #2455, #2693)
+- [x] 8.1 Push the branch `ci/release-please-sync-uv-lock` to origin: `git push -u origin ci/release-please-sync-uv-lock`
+- [x] 8.2 Open the PR via `gh pr create` against `main`. PR [#21](https://github.com/igorlg/cfn-handler/pull/21). Title: `ci(release): sync uv.lock from release-please and flip CI to --locked`. Body links to the proposal and the three upstream issues (#2561, #2455, #2693)
 
 ## 9. Cloud CI on the PR
 
