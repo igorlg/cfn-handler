@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import secrets
 import string
+import warnings
 from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, Literal, Protocol
@@ -117,9 +118,10 @@ class CustomResource:
             invocation for cleanup and response sending. If less remains,
             the resource is failed with a timeout reason rather than risk
             an unresponsive Lambda.
-        test_mode: When True, responses are captured on
+        test_mode: **Deprecated.** When True, responses are captured on
             :attr:`last_response` instead of being sent to CloudFormation.
-            Useful for unit-testing handlers in isolation.
+            Scheduled for removal in v2.0; use ``CustomResource.replay()``
+            and the helpers in :mod:`cfn_handler.testing` instead.
         transport: Optional transport callable replacing the default urllib
             PUT to the CFN response URL. Signature: ``(url, payload) -> None``.
             Used internally by :meth:`replay` and available for advanced
@@ -144,8 +146,9 @@ class CustomResource:
             create (otherwise one is auto-generated).
         no_echo: When True, the ``Data`` field is masked in CloudFormation
             output (used for credentials).
-        last_response: In ``test_mode``, the most recent response payload
-            that *would* have been sent. ``None`` outside test mode.
+        last_response: **Deprecated.** In ``test_mode``, the most recent
+            response payload that *would* have been sent. ``None`` outside
+            test mode. Use :meth:`replay` for new code.
     """
 
     physical_resource_id: str
@@ -167,6 +170,15 @@ class CustomResource:
         self._polling_interval_minutes = polling_interval_minutes
         self._polling_safety_margin_ms = polling_safety_margin_ms
         self._test_mode = test_mode
+        if test_mode:
+            warnings.warn(
+                "CustomResource(test_mode=True) is deprecated and will be removed "
+                "in v2.0. Use CustomResource.replay() and the helpers in "
+                "cfn_handler.testing (Replay, make_event, make_context, "
+                "assert_success, assert_failed, assert_deferred) instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
         # Default transport is the production HTTP PUT (looked up lazily in
         # ``_emit_response`` so that monkey-patching ``cfn_handler.resource.
         # send_response`` continues to work). Tests that want explicit
