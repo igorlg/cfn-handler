@@ -21,8 +21,16 @@ test-integration:
     uv run pytest tests/integration
 
 # Run the test suite with coverage gate (fails below 95%).
+#
+# Uses `coverage run -m pytest` (NOT `pytest --cov`) so coverage's
+# instrumentation hooks attach BEFORE the pytest11 entry point loads
+# `cfn_handler.testing.fixtures` and transitively imports `cfn_handler`.
+# Otherwise module-level code in __init__.py runs before coverage starts
+# and the report shows artificial 0% coverage on those lines.
 test-cov:
-    uv run pytest --cov --cov-report=term-missing --cov-report=html
+    uv run coverage run -m pytest
+    uv run coverage report --show-missing --fail-under=95
+    uv run coverage html
 
 # Watch tests (re-run on file change). Requires pytest-watcher; install via `uv add --group test pytest-watcher` if not already.
 test-watch:

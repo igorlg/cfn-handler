@@ -43,6 +43,14 @@ Repository = "https://github.com/igorlg/cfn-handler"
 Issues = "https://github.com/igorlg/cfn-handler/issues"
 Changelog = "https://github.com/igorlg/cfn-handler/blob/main/CHANGELOG.md"
 
+# Auto-discovered pytest plugin: when `cfn_handler` is installed in any
+# Python environment that runs pytest, pytest's plugin manager picks up
+# the fixtures module via this entry point — no `pytest_plugins` declaration
+# required in user conftest. The fixtures module is a thin namespace that
+# only does work when its fixtures are actually requested.
+[project.entry-points.pytest11]
+cfn_handler = "cfn_handler.testing.fixtures"
+
 [dependency-groups]
 test = [
     "pytest>=8",
