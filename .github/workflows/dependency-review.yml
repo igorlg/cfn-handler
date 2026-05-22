@@ -34,3 +34,13 @@ jobs:
             CC0-1.0,
             Unlicense,
             0BSD
+          # Vetted exceptions to the license allowlist:
+          #
+          # typing-extensions exposes a compound SPDX expression
+          # `Python-2.0 AND GPL-1.0-or-later AND ...` derived from the
+          # historic CNRI Python license metadata. The package's own
+          # License-Expression header is `PSF-2.0`. The GPL fragment is
+          # an artefact of legacy Python distribution, not a real
+          # licensing claim — typing-extensions is PSF-licensed and
+          # fully Apache-2.0-compatible.
+          allow-dependencies-licenses: 'pkg:pypi/typing-extensions'
