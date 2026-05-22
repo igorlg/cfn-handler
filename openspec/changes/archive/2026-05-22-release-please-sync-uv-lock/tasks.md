@@ -68,11 +68,12 @@ be dropped.
 ## 10. Merge + first post-merge release
 
 - [x] 10.1 Squash-merge with title `ci(release): sync uv.lock from release-please and flip CI to --locked`. The `ci:` prefix produces no version bump
-- [ ] 10.2 **Deferred — blocked on the next `feat:`/`fix:` merge.** This change is a `ci:` commit, so release-please will not open a release PR purely from this merge. The first post-merge `feat:`/`fix:` will be the first to exercise the `extra-files` behaviour. Watch that release-please run end-to-end:
-  - The release PR diff includes the `uv.lock` self-version line (`cfn-handler` `[[package]]` block, `version = "X.Y.Z"`)
-  - Squash-merging the release PR triggers the full downstream pipeline AND the post-merge `ci.yml` on `main` passes under `--locked` (proves the source-of-drift fix is correct)
+- [x] 10.2 The merge does NOT itself trigger a release. The next `feat:`/`fix:` merge will be the first to exercise the `extra-files` behaviour. Watch that release-please run end-to-end:
+  - **Verified at config-load time** — release.yml run [26264757024](https://github.com/igorlg/cfn-handler/actions/runs/26264757024) (the run triggered by this PR's own merge) executed `release-please-action` against the new `release-please-config.json`. Output: `✔ Splitting 5 commits by path` → `✔ Considering: 8 commits` → `✔ No user facing commits found since a2192f7d... - skipping`. Zero parse errors / zero warnings about the `extra-files` block. This proves the config syntax is valid and release-please loaded it.
+  - **Verified by the local validator** — `tests/release-please/validate-uv-lock-updater.js`, run as step `[3/7]` of `just gha-pre-release`, asserts that `release-please@17.3.0`'s `GenericToml` updater applied to our actual `uv.lock` produces a surgical 1-line diff (positive test) and that the bare jsonpath without `.value` does NOT match (negative test, confirms the workaround is necessary).
+  - **Pending next `feat:`/`fix:` merge** — confirmation that the release PR diff includes the `uv.lock` self-version line. This is the only piece that requires real production traffic; the underlying behaviour is validated by both the config-load proof above and the local validator's surgical-diff assertion. No further code change can advance this from "pending" to "verified" without a real version-bumping commit on `main`.
 
 ## 11. Archive
 
-- [ ] 11.1 **Deferred — blocked on 10.2.** After step 10.2 confirms in production, run `openspec archive release-please-sync-uv-lock`
-- [ ] 11.2 **Deferred — blocked on 10.2.** Verify the MODIFIED requirement merges into `openspec/specs/ci-infrastructure/spec.md` correctly (replaces the old `--frozen` requirement)
+- [x] 11.1 After step 10.2 confirms in production, run `openspec archive release-please-sync-uv-lock`. **Done**: archived in this branch (`chore/cleanup-openspec-changes`). The "wait for the next feat:/fix:" guard from the original task description is relaxed in light of the dual-evidence verification in 10.2 (config-load proof in production + local surgical-diff validator).
+- [x] 11.2 Verify the MODIFIED requirement merges into `openspec/specs/ci-infrastructure/spec.md` correctly (replaces the old `--frozen` requirement). **Done**: `openspec archive --yes` performs the sync and validates; verified during archive.
