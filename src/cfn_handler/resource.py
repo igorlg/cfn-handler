@@ -31,19 +31,24 @@ from __future__ import annotations
 
 import secrets
 import string
-from collections.abc import Callable
-from typing import Any, Literal, Protocol
+import warnings
+from collections.abc import Callable, Generator
+from contextlib import contextmanager
+from typing import TYPE_CHECKING, Any, Literal, Protocol
 
 from cfn_handler._internal.log import logger
 from cfn_handler._internal.poller import (
     EVENT_MARKER_PERMISSION,
     EVENT_MARKER_RULE,
+    PollerProvision,
+    PollerTeardown,
     is_poll_event,
     setup_polling,
     teardown_polling,
 )
 from cfn_handler._internal.response import (
     ResponseStatus,
+    Transport,
     build_response,
     send_response,
 )
@@ -52,6 +57,9 @@ from cfn_handler._internal.timing import (
     has_time_for_iteration,
 )
 from cfn_handler.exceptions import CfnHandlerError, ResponseError
+
+if TYPE_CHECKING:
+    from cfn_handler.testing._internal.replay_result import Replay
 
 #: A user-registered handler returns a dict (becomes ``Data``) or ``None``.
 HandlerResult = dict[str, Any] | None
@@ -110,9 +118,23 @@ class CustomResource:
             invocation for cleanup and response sending. If less remains,
             the resource is failed with a timeout reason rather than risk
             an unresponsive Lambda.
-        test_mode: When True, responses are captured on
+        test_mode: **Deprecated.** When True, responses are captured on
             :attr:`last_response` instead of being sent to CloudFormation.
-            Useful for unit-testing handlers in isolation.
+            Scheduled for removal in v2.0; use ``CustomResource.replay()``
+            and the helpers in :mod:`cfn_handler.testing` instead.
+        transport: Optional transport callable replacing the default urllib
+            PUT to the CFN response URL. Signature: ``(url, payload) -> None``.
+            Used internally by :meth:`replay` and available for advanced
+            users who need to interpose on the response. Pass ``None``
+            (default) to use the production HTTP transport.
+        provision_poller: Optional callable replacing the default
+            ``setup_polling`` (boto3 EventBridge call) used when a
+            polling handler is registered. Signature:
+            ``(event, function_name, polling_interval_minutes, region) -> None``.
+            Used internally by :meth:`replay` to stub out AWS calls.
+        teardown_poller: Optional callable replacing the default
+            ``teardown_polling``. Signature:
+            ``(event, function_name, region) -> None``.
         log_level: Optional log level (``"DEBUG"``, ``logging.INFO``, etc.)
             to apply to the ``cfn_handler`` logger. Pass ``None`` (default)
             to leave the user's logging configuration alone.
@@ -124,8 +146,9 @@ class CustomResource:
             create (otherwise one is auto-generated).
         no_echo: When True, the ``Data`` field is masked in CloudFormation
             output (used for credentials).
-        last_response: In ``test_mode``, the most recent response payload
-            that *would* have been sent. ``None`` outside test mode.
+        last_response: **Deprecated.** In ``test_mode``, the most recent
+            response payload that *would* have been sent. ``None`` outside
+            test mode. Use :meth:`replay` for new code.
     """
 
     physical_resource_id: str
@@ -138,12 +161,35 @@ class CustomResource:
         polling_interval_minutes: int = 1,
         polling_safety_margin_ms: int = DEFAULT_SAFETY_MARGIN_MS,
         test_mode: bool = False,
+        transport: Transport | None = None,
+        provision_poller: PollerProvision | None = None,
+        teardown_poller: PollerTeardown | None = None,
         log_level: int | str | None = None,
     ) -> None:
         """Initialise the resource. Raises no exceptions; init failures should be reported via :meth:`init_failure`."""
         self._polling_interval_minutes = polling_interval_minutes
         self._polling_safety_margin_ms = polling_safety_margin_ms
         self._test_mode = test_mode
+        if test_mode:
+            warnings.warn(
+                "CustomResource(test_mode=True) is deprecated and will be removed "
+                "in v2.0. Use CustomResource.replay() and the helpers in "
+                "cfn_handler.testing (Replay, make_event, make_context, "
+                "assert_success, assert_failed, assert_deferred) instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+        # Default transport is the production HTTP PUT (looked up lazily in
+        # ``_emit_response`` so that monkey-patching ``cfn_handler.resource.
+        # send_response`` continues to work). Tests that want explicit
+        # control inject a callable via the ``transport=`` kwarg or via
+        # ``replay()``.
+        self._transport: Transport | None = transport
+        # Same late-binding pattern for poller seams: defaults are looked
+        # up lazily so existing tests that ``patch("cfn_handler.resource.
+        # setup_polling")`` continue to work; explicit kwargs short-circuit.
+        self._provision_poller: PollerProvision | None = provision_poller
+        self._teardown_poller: PollerTeardown | None = teardown_poller
 
         if log_level is not None:
             logger.setLevel(log_level)
@@ -236,6 +282,78 @@ class CustomResource:
             logger.exception("Unhandled error in CustomResource.__call__")
             self._best_effort_failed(event, context, "Internal error in cfn_handler dispatch")
         return self.last_response if self._test_mode else None
+
+    # ---- In-process replay (for testing) --------------------------------
+
+    # ---- In-process replay (for testing) --------------------------------
+
+    @contextmanager
+    def _replay_seams(
+        self,
+        *,
+        transport: Transport,
+        provision_poller: PollerProvision,
+        teardown_poller: PollerTeardown,
+    ) -> Generator[None, None, None]:
+        """Temporarily replace the production seams for a replay run.
+
+        Internal contract used by ``cfn_handler.testing._internal.runner``.
+        Snapshots the current values, swaps in the supplied callables,
+        and restores on exit (including exceptions). Also forces
+        ``test_mode`` off for the duration: ``replay()`` always wants
+        the dispatch path to go through the supplied capturing
+        transport, never the legacy ``last_response`` capture.
+        """
+        saved_transport = self._transport
+        saved_provision = self._provision_poller
+        saved_teardown = self._teardown_poller
+        saved_test_mode = self._test_mode
+
+        self._transport = transport
+        self._provision_poller = provision_poller
+        self._teardown_poller = teardown_poller
+        self._test_mode = False
+
+        try:
+            yield
+        finally:
+            self._transport = saved_transport
+            self._provision_poller = saved_provision
+            self._teardown_poller = saved_teardown
+            self._test_mode = saved_test_mode
+
+    def replay(
+        self,
+        event: dict[str, Any],
+        context: LambdaContext | None = None,
+    ) -> Replay:
+        """Execute the dispatch flow in-process and return a structured result.
+
+        Replay runs the same code paths as :meth:`__call__` (handler
+        resolution, handler invocation, polling deferral) but swaps the
+        HTTP transport and the polling-provisioning callables for in-memory
+        captures. No HTTP request is issued; ``boto3`` is never imported
+        unless something on the user's handler path imports it.
+
+        The same instance can be replayed multiple times. Each call
+        snapshots the request type and rebuilds an isolated capture
+        state, so polling-deferral tests work cleanly: replay once,
+        observe ``status="DEFERRED"`` and the mutated event, replay
+        again with the mutated event to drive the poll handler.
+
+        Args:
+            event: A CloudFormation custom-resource event. Use
+                :func:`cfn_handler.testing.make_event` to build one.
+            context: Optional Lambda context. Defaults to a fresh
+                :func:`cfn_handler.testing.make_context` instance.
+
+        Returns:
+            A :class:`cfn_handler.testing.Replay` capturing the outcome.
+        """
+        # Local import to avoid a public→testing→public cycle at module load.
+        from cfn_handler.testing._internal.runner import run_replay
+
+        return run_replay(self, event, context)
 
     # ---- Internal dispatch ----------------------------------------------
 
@@ -342,11 +460,8 @@ class CustomResource:
             return
 
         try:
-            setup_polling(
-                event,
-                function_name=context.function_name,
-                polling_interval_minutes=self._polling_interval_minutes,
-            )
+            provision = self._provision_poller if self._provision_poller is not None else setup_polling
+            provision(event, context.function_name, self._polling_interval_minutes, None)
         except CfnHandlerError as exc:
             logger.exception("setup_polling failed; failing the resource")
             self._send_failed(event, context, self._reason_from_exception(exc))
@@ -359,7 +474,8 @@ class CustomResource:
         if EVENT_MARKER_RULE not in event and EVENT_MARKER_PERMISSION not in event:
             return  # Nothing to tear down (initial invocation path that errored before setup).
         try:
-            teardown_polling(event, function_name=context.function_name)
+            teardown = self._teardown_poller if self._teardown_poller is not None else teardown_polling
+            teardown(event, context.function_name, None)
         except Exception:
             logger.exception("teardown_polling raised; continuing")
 
@@ -422,8 +538,14 @@ class CustomResource:
             self.last_response = payload
             logger.info("test_mode: skipping CFN response, captured on .last_response")
             return
+        # Late-bound default: look up the module-level ``send_response`` at
+        # call time so existing tests that monkey-patch
+        # ``cfn_handler.resource.send_response`` continue to work. An
+        # explicit ``transport=`` kwarg short-circuits this and is what
+        # ``replay()`` uses to capture without HTTP.
+        transport = self._transport if self._transport is not None else send_response
         try:
-            send_response(event["ResponseURL"], payload)
+            transport(event["ResponseURL"], payload)
         except ResponseError:
             logger.exception("Failed to send CloudFormation response")
 

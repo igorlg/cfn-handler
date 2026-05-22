@@ -30,7 +30,7 @@ def test_create_with_poll_handler_defers_response(
     mock_context: Mock,
 ) -> None:
     """Lifecycle handler runs, then setup_polling is called and NO response sent."""
-    resource = CustomResource()  # NOT test_mode: we want to verify setup_polling
+    resource = CustomResource()  # production path: we want to verify setup_polling
 
     @resource.create
     def on_create(_e: dict[str, Any], _c: LambdaContext) -> None:
@@ -48,27 +48,6 @@ def test_create_with_poll_handler_defers_response(
 
     setup.assert_called_once()
     send.assert_not_called()
-
-
-def test_create_with_poll_handler_in_test_mode_records_sentinel(
-    events: dict[str, dict[str, Any]],
-    mock_context: Mock,
-) -> None:
-    """Test-mode polling records a sentinel on last_response so tests can assert intent."""
-    resource = CustomResource(test_mode=True)
-
-    @resource.create
-    def on_create(_e: dict[str, Any], _c: LambdaContext) -> dict[str, Any]:
-        return {"foo": "bar"}
-
-    @resource.poll_create
-    def on_poll(_e: dict[str, Any], _c: LambdaContext) -> None:
-        return None
-
-    resource(events["Create"], mock_context)
-    assert resource.last_response is not None
-    assert resource.last_response.get("__cfn_handler_polling__") is True
-    assert resource.last_response.get("Data") == {"foo": "bar"}
 
 
 def test_setup_polling_failure_yields_failed_response(

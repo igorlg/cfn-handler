@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import secrets
 import string
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 from cfn_handler._internal.log import logger
@@ -30,6 +31,15 @@ EVENT_MARKER_POLL = "CfnHandlerPoll"
 EVENT_MARKER_RULE = "CfnHandlerRule"
 EVENT_MARKER_PERMISSION = "CfnHandlerPermission"
 EVENT_MARKER_DATA = "CfnHandlerData"
+
+#: Pluggable callable for provisioning polling. The default is
+#: :func:`setup_polling`; testing helpers swap in a stub that mutates the
+#: event with marker keys (matching real provisioning) without importing
+#: boto3 or hitting AWS.
+PollerProvision = Callable[[dict[str, Any], str, int, "str | None"], None]
+
+#: Pluggable callable for tearing down polling, mirroring :data:`PollerProvision`.
+PollerTeardown = Callable[[dict[str, Any], str, "str | None"], None]
 
 
 class PollingDependencyError(CfnHandlerError):

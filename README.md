@@ -132,6 +132,45 @@ Working SAM-deployable examples live in `examples/`:
 - `examples/with-physical-id/` — explicit physical resource id (replacement on update).
 - `examples/failing/` — handler that fails, demonstrating FAILED-response semantics.
 
+## Testing your handlers
+
+`cfn-handler` ships first-class testing helpers under `cfn_handler.testing`.
+The dispatch flow runs in-process; no HTTP, no boto3, no moto setup
+required for unit tests:
+
+```python
+from cfn_handler import CustomResource
+from cfn_handler.testing import assert_success, make_event
+
+def test_my_create_handler():
+    resource = CustomResource()
+
+    @resource.create
+    def on_create(event, context):
+        return {"Endpoint": "https://x.example"}
+
+    replay = resource.replay(make_event())
+    assert_success(replay, data={"Endpoint": "https://x.example"})
+```
+
+Available surface:
+
+- `CustomResource.replay(event, context=None)` — execute the dispatch
+  in-process, returning a structured `Replay` (status, data, reason,
+  payload, ...).
+- `make_event(...)`, `make_context(...)` — factories with safe defaults.
+- `assert_success`, `assert_failed`, `assert_deferred` — assertion helpers
+  with informative messages on failure.
+- pytest fixtures `cfn_create_event`, `cfn_update_event`,
+  `cfn_delete_event`, `cfn_lambda_context` — auto-discovered via the
+  `pytest11` entry point; no `pytest_plugins` declaration needed.
+
+For long-running (polled) handlers, the first `replay()` returns
+`Replay(status="DEFERRED")` and mutates the event with marker keys.
+A second `replay()` with the mutated event resumes through the poll
+handler — useful for testing both halves of a polled lifecycle without
+provisioning EventBridge rules.
+
 ## Project status
 
 v1.0.0 — first stable release. Follows [Semantic Versioning](https://semver.org).

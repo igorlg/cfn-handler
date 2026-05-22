@@ -70,7 +70,18 @@ jobs:
         run: uv sync --locked --only-group test
 
       - name: Run tests with coverage
-        run: uv run pytest --cov --cov-report=xml --cov-report=term
+        # `coverage run -m pytest` (NOT `pytest --cov`): the pytest11
+        # entry point in cfn_handler.testing.fixtures causes pytest to
+        # import cfn_handler during plugin collection, BEFORE pytest-cov
+        # attaches its instrumentation. Module-level code in __init__.py
+        # then runs uninstrumented and the report shows artificial 0%
+        # coverage on those lines, dropping aggregate to ~68%. Using
+        # `coverage run` ensures coverage's tracer is active before any
+        # imports. Same pattern as `just test-cov`.
+        run: |
+          uv run coverage run -m pytest
+          uv run coverage xml
+          uv run coverage report
 
       - name: Upload coverage to Codecov
         if: matrix.runner == 'ubuntu-24.04' && matrix.python == '3.12'

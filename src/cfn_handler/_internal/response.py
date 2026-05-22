@@ -16,12 +16,19 @@ from __future__ import annotations
 import json
 import urllib.error
 import urllib.request
+from collections.abc import Callable
 from typing import Any, Final, Literal
 
 from cfn_handler._internal.log import logger
 from cfn_handler.exceptions import ResponseError
 
 ResponseStatus = Literal["SUCCESS", "FAILED"]
+
+#: A pluggable transport callable: takes ``(url, payload)`` and is responsible
+#: for delivering the payload to ``url``. The production implementation is
+#: :func:`send_response` (urllib PUT). Testing helpers swap this for an
+#: in-memory capture; see :mod:`cfn_handler.testing`.
+Transport = Callable[[str, dict[str, Any]], None]
 
 #: CloudFormation truncates the response ``Reason`` field at this many bytes.
 #: See: https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/crpg-ref-responses.html

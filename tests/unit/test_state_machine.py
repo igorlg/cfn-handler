@@ -8,7 +8,7 @@ Hypothesis enumerates combinations of:
 
 against the documented invariants:
 
-I1. Exactly one response is sent (or recorded in test_mode) per terminal call.
+I1. Exactly one response is captured per terminal call (via ``replay()``).
 I2. SUCCESS responses include all required fields (Status, PhysicalResourceId,
     StackId, RequestId, LogicalResourceId, Reason, Data).
 I3. FAILED responses include a non-empty Reason.
@@ -78,12 +78,11 @@ def test_lifecycle_invariants_no_polling(
     remaining_ms: int,
     no_echo: bool,
 ) -> None:
-    """Without polling, every dispatch produces exactly one response satisfying
-    the documented invariants (I1-I5)."""
+    """Without polling, every dispatch produces exactly one response satisfying the documented invariants (I1-I5)."""
     event = copy.deepcopy(_BASE_EVENTS[request_type])
     context = _make_context(remaining_ms)
 
-    resource = CustomResource(test_mode=True)
+    resource = CustomResource()
 
     if register_handler:
         decorator = getattr(resource, request_type.lower())
@@ -96,13 +95,14 @@ def test_lifecycle_invariants_no_polling(
                 return None
             if handler_outcome == "dict":
                 return {"k": "v"}
-            raise RuntimeError("simulated handler failure")
+            msg = "simulated handler failure"
+            raise RuntimeError(msg)
 
-    resource(event, context)
+    replay = resource.replay(event, context)
 
-    payload = resource.last_response
-    # I1: exactly one response was recorded.
-    assert payload is not None, "No response was recorded"
+    # I1: exactly one response was captured.
+    assert replay.payload, "No response was captured"
+    payload = replay.payload
 
     # I2 / I5: required fields present and non-empty PID.
     for required in ("Status", "PhysicalResourceId", "StackId", "RequestId", "LogicalResourceId", "Reason", "Data"):
@@ -115,18 +115,18 @@ def test_lifecycle_invariants_no_polling(
 
     # Outcome-specific assertions:
     if not register_handler:
-        assert payload["Status"] == "FAILED"
-        assert payload["Reason"]  # I3
+        assert replay.status == "FAILED"
+        assert replay.reason  # I3
     elif handler_outcome == "raise":
-        assert payload["Status"] == "FAILED"
-        assert payload["Reason"]  # I3
-        assert "simulated handler failure" in payload["Reason"]
+        assert replay.status == "FAILED"
+        assert replay.reason  # I3
+        assert "simulated handler failure" in replay.reason
     else:
-        assert payload["Status"] == "SUCCESS"
+        assert replay.status == "SUCCESS"
         if handler_outcome == "dict":
-            assert payload["Data"] == {"k": "v"}
+            assert replay.data == {"k": "v"}
         else:
-            assert payload["Data"] == {}
+            assert replay.data == {}
 
 
 @settings(
@@ -152,7 +152,7 @@ def test_physical_resource_id_resolution(
     # refuse; assume well-formed input. (Real CFN PIDs are well-formed.)
     assume(pid_value.encode("utf-8", "surrogatepass") == pid_value.encode("utf-8", "strict"))
 
-    resource = CustomResource(test_mode=True)
+    resource = CustomResource()
 
     decorator = getattr(resource, request_type.lower())
 
@@ -162,17 +162,17 @@ def test_physical_resource_id_resolution(
             resource.physical_resource_id = pid_value
         return None
 
-    resource(event, context)
-    assert resource.last_response is not None
+    replay = resource.replay(event, context)
+    assert replay.physical_resource_id is not None
 
     if pid_set:
-        assert resource.last_response["PhysicalResourceId"] == pid_value
+        assert replay.physical_resource_id == pid_value
     elif "PhysicalResourceId" in event:
-        assert resource.last_response["PhysicalResourceId"] == event["PhysicalResourceId"]
+        assert replay.physical_resource_id == event["PhysicalResourceId"]
     else:
-        assert resource.last_response["PhysicalResourceId"]
+        assert replay.physical_resource_id
         # Auto-generated id includes the logical resource id.
-        assert event["LogicalResourceId"] in resource.last_response["PhysicalResourceId"]
+        assert event["LogicalResourceId"] in replay.physical_resource_id
 
 
 @settings(deadline=None, max_examples=100)
@@ -209,7 +209,7 @@ def test_handler_outcomes_each_request_type(
     event = copy.deepcopy(_BASE_EVENTS[request_type])
     context = _make_context(120_000)
 
-    resource = CustomResource(test_mode=True)
+    resource = CustomResource()
 
     decorator = getattr(resource, handler_to_register)
 
@@ -219,9 +219,9 @@ def test_handler_outcomes_each_request_type(
             return None
         if handler_outcome == "dict":
             return {"x": "y"}
-        raise RuntimeError("err")
+        msg = "err"
+        raise RuntimeError(msg)
 
-    resource(event, context)
-    assert resource.last_response is not None
-    assert resource.last_response["Status"] in {"SUCCESS", "FAILED"}
-    assert resource.last_response["PhysicalResourceId"]
+    replay = resource.replay(event, context)
+    assert replay.status in {"SUCCESS", "FAILED"}
+    assert replay.physical_resource_id
