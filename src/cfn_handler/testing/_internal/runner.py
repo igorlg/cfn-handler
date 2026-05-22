@@ -14,10 +14,26 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, cast
 
-from cfn_handler.testing._internal.replay_result import Replay, ReplayRequestType, ReplayStatus
+from cfn_handler.testing._internal.replay_result import Replay
 
+# TYPE_CHECKING-only imports: at runtime ``cfn_handler.resource`` IS already
+# loaded by the time ``run_replay`` is called (the user must have imported
+# ``CustomResource`` to instantiate one). The ``if TYPE_CHECKING`` guard means
+# this block is never executed at module load — it exists solely so mypy/pyright
+# can resolve the ``CustomResource`` and ``LambdaContext`` annotations below.
+# ``ReplayRequestType`` and ``ReplayStatus`` go here too because they're only
+# used in annotations (which become strings under
+# ``from __future__ import annotations``) or in string-form ``cast()`` calls
+# (per ruff's TC006). Importing them at runtime would be flagged as unused.
+# CodeQL's ``py/cyclic-import`` query flags the ``cfn_handler.resource`` import
+# as a cycle because it doesn't model conditional imports; the cycle is
+# paper-only and has no runtime effect. Paired with the lazy
+# ``from ... import run_replay`` inside ``CustomResource.replay``
+# (resource.py), which is the canonical Python pattern for breaking import
+# cycles between modules with a directional dependency.
 if TYPE_CHECKING:
     from cfn_handler.resource import CustomResource, LambdaContext
+    from cfn_handler.testing._internal.replay_result import ReplayRequestType, ReplayStatus
 
 
 def _make_default_context() -> LambdaContext:
