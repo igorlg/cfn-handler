@@ -146,8 +146,21 @@ test-matrix-arm64: _check-act
 #   4b. ci.yml `lint` job — ruff, ruff-format, mypy strict, pyright strict
 #       (~30s).
 #   4c. examples-lint.yml — cfn-lint over examples/**/template.yaml (~30s).
-#   5. codeql.yml — Python security-and-quality scan (~1-8 min, slower
-#      on first run while CodeQL bundle downloads).
+#   5. codeql.yml — INTENTIONALLY SKIPPED. The CodeQL Action's
+#      post-analysis step calls GitHub's REST API
+#      (/repos/{owner}/{repo}/actions/runs/{run_id}) for telemetry
+#      and status reporting; under `act` the synthesized GITHUB_RUN_ID
+#      doesn't exist on github.com, the call 404s, and the action
+#      classifies the job as JOB_STATUS_CONFIGURATION_ERROR even when
+#      the analysis itself succeeded with zero findings. CodeQL is
+#      validated by the real GH Actions run on every PR; replicating
+#      it here would always report a false-negative failure.
+#      To run CodeQL locally on demand:
+#        act push -W .github/workflows/codeql.yml \
+#          --container-architecture linux/amd64 \
+#          --secret GITHUB_TOKEN="$(gh auth token)"
+#      (Inspect the SARIF in /Users/<you>/.../results/python.sarif —
+#       configuration-error exits with the SARIF generated mean clean.)
 gha-pre-release: _check-act _check-gh-token _check-docker _check-npm
     #!/usr/bin/env bash
     set -uo pipefail
@@ -157,13 +170,13 @@ gha-pre-release: _check-act _check-gh-token _check-docker _check-npm
       --secret GITHUB_TOKEN="$(gh auth token)"
     )
 
-    echo "==> [1/7] secure-workflows.yml — SHA-pin enforcement"
+    echo "==> [1/6] secure-workflows.yml — SHA-pin enforcement"
     act pull_request -W .github/workflows/secure-workflows.yml "${common_flags[@]}" \
         --action-cache-path /tmp/act-cache-secure-workflows \
         || { echo; echo "FAIL: secure-workflows.yml"; exit 1; }
 
     echo
-    echo "==> [2/7] Docker action manifest probe"
+    echo "==> [2/6] Docker action manifest probe"
     # Match `uses: <owner>/<repo>@<sha>` in every workflow file, then for any
     # action that publishes a Docker image at ghcr.io/<owner>/<repo>, verify
     # the SHA resolves to a real image. Currently this is just
@@ -205,7 +218,7 @@ gha-pre-release: _check-act _check-gh-token _check-docker _check-npm
     echo "  (all Docker action images resolve)"
 
     echo
-    echo "==> [3/7] release-please uv.lock validator"
+    echo "==> [3/6] release-please uv.lock validator"
     # Loads release-please's GenericToml updater locally and exercises it
     # against the real uv.lock + the jsonpath in release-please-config.json.
     # `npm ci` is strict-lockfile (matches our uv --locked posture); install
@@ -217,30 +230,34 @@ gha-pre-release: _check-act _check-gh-token _check-docker _check-npm
     ) || { echo; echo "FAIL: release-please uv.lock validator"; exit 1; }
 
     echo
-    echo "==> [4a/7] ci.yml — test matrix (amd64 + arm64 in parallel)"
+    echo "==> [4a/6] ci.yml — test matrix (amd64 + arm64 in parallel)"
     just test-matrix \
         || { echo; echo "FAIL: ci.yml test matrix"; exit 1; }
 
     echo
-    echo "==> [4b/7] ci.yml — lint+typecheck job"
+    echo "==> [4b/6] ci.yml — lint+typecheck job"
     act pull_request -W .github/workflows/ci.yml "${common_flags[@]}" --job lint \
         --action-cache-path /tmp/act-cache-lint \
         || { echo; echo "FAIL: ci.yml lint job"; exit 1; }
 
     echo
-    echo "==> [4c/7] examples-lint.yml — cfn-lint over examples"
+    echo "==> [4c/6] examples-lint.yml — cfn-lint over examples"
     act pull_request -W .github/workflows/examples-lint.yml "${common_flags[@]}" \
         --action-cache-path /tmp/act-cache-examples-lint \
         || { echo; echo "FAIL: examples-lint.yml"; exit 1; }
 
     echo
-    echo "==> [5/7] codeql.yml — Python security analysis"
-    act push -W .github/workflows/codeql.yml "${common_flags[@]}" \
-        --action-cache-path /tmp/act-cache-codeql \
-        || { echo; echo "FAIL: codeql.yml"; exit 1; }
+    echo "==> [5/6] codeql.yml — SKIPPED (act/CodeQL incompatibility)"
+    echo "    The CodeQL Action's post-analysis telemetry call to GitHub's"
+    echo "    REST API 404s under \`act\` because the synthesized GITHUB_RUN_ID"
+    echo "    doesn't exist on github.com, even when the analysis itself"
+    echo "    succeeds with zero findings. CodeQL is validated by the real"
+    echo "    GH Actions run on every PR; see the recipe header comment for"
+    echo "    instructions on running CodeQL locally on demand."
 
     echo
-    echo "OK: all gating jobs passed locally. Safe to merge."
+    echo "OK: all locally-replayable gating jobs passed. Safe to merge."
+    echo "    (CodeQL still gates merge on the actual PR via real GH Actions.)"
 
 # ---- OpenSpec ------------------------------------------------------------
 
