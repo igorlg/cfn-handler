@@ -174,12 +174,6 @@ filterwarnings = [
     "error",
     # hypothesis emits an info-level warning about deadlines on slow CI; ignore it.
     "ignore::hypothesis.errors.NonInteractiveExampleWarning",
-    # Migration window: the project's own pre-existing tests still use
-    # ``CustomResource(test_mode=True)``, which now emits a
-    # DeprecationWarning. The next commit migrates the suite onto
-    # ``replay()`` and removes this exception. Without it, an
-    # intermediate-checkout of this commit would fail the suite.
-    "ignore:CustomResource\\(test_mode=True\\) is deprecated:DeprecationWarning",
 ]
 
 # ---- Coverage -------------------------------------------------------------

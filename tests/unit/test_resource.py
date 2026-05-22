@@ -1,8 +1,9 @@
 """Unit tests for the public ``CustomResource`` class.
 
-Strategy: use ``test_mode=True`` so we don't actually PUT to a CFN URL; we
-inspect ``last_response`` to verify the payload that *would* have been sent.
-This is exactly the test-mode pattern from upstream issues #52 / #54.
+Strategy: use ``replay()`` so we don't actually PUT to a CFN URL; we
+inspect the returned ``Replay`` value to verify the payload that *would*
+have been sent. This is the ``cfn_handler.testing`` v1.3+ pattern;
+the legacy ``test_mode`` flag is deprecated.
 """
 
 from __future__ import annotations
@@ -20,6 +21,7 @@ from cfn_handler.resource import (
     LambdaContext,
     _generate_physical_id,
 )
+from cfn_handler.testing import assert_failed, assert_success
 
 # ---- Public API surface --------------------------------------------------
 
@@ -58,7 +60,7 @@ def test_lambda_context_protocol_accepts_real_shape() -> None:
 
 @pytest.mark.parametrize("attr", ["create", "update", "delete"])
 def test_lifecycle_decorator_registers_handler(attr: str) -> None:
-    resource = CustomResource(test_mode=True)
+    resource = CustomResource()
 
     @getattr(resource, attr)
     def fn(_event: dict[str, Any], _context: LambdaContext) -> None:
@@ -70,7 +72,7 @@ def test_lifecycle_decorator_registers_handler(attr: str) -> None:
 
 @pytest.mark.parametrize("attr", ["poll_create", "poll_update", "poll_delete"])
 def test_poll_decorator_registers_handler(attr: str) -> None:
-    resource = CustomResource(test_mode=True)
+    resource = CustomResource()
 
     @getattr(resource, attr)
     def fn(_event: dict[str, Any], _context: LambdaContext) -> None:
@@ -81,7 +83,7 @@ def test_poll_decorator_registers_handler(attr: str) -> None:
 
 
 def test_lifecycle_decorator_returns_original_callable() -> None:
-    resource = CustomResource(test_mode=True)
+    resource = CustomResource()
 
     def fn(_event: dict[str, Any], _context: LambdaContext) -> None:
         return None
@@ -92,7 +94,7 @@ def test_lifecycle_decorator_returns_original_callable() -> None:
 
 @pytest.mark.parametrize("attr", ["create", "update", "delete"])
 def test_double_lifecycle_registration_raises(attr: str) -> None:
-    resource = CustomResource(test_mode=True)
+    resource = CustomResource()
     decorator = getattr(resource, attr)
 
     @decorator
@@ -108,7 +110,7 @@ def test_double_lifecycle_registration_raises(attr: str) -> None:
 
 @pytest.mark.parametrize("attr", ["poll_create", "poll_update", "poll_delete"])
 def test_double_poll_registration_raises(attr: str) -> None:
-    resource = CustomResource(test_mode=True)
+    resource = CustomResource()
     decorator = getattr(resource, attr)
 
     @decorator
@@ -131,7 +133,7 @@ def test_double_registration_error_is_a_value_error() -> None:
 
 
 def test_create_dispatch_invokes_create_handler(events: dict[str, dict[str, Any]], mock_context: Mock) -> None:
-    resource = CustomResource(test_mode=True)
+    resource = CustomResource()
     captured: list[tuple[dict[str, Any], LambdaContext]] = []
 
     @resource.create
@@ -139,14 +141,14 @@ def test_create_dispatch_invokes_create_handler(events: dict[str, dict[str, Any]
         captured.append((event, context))
         return None
 
-    resource(events["Create"], mock_context)
+    resource.replay(events["Create"], mock_context)
     assert len(captured) == 1
     assert captured[0][0] is events["Create"]
     assert captured[0][1] is mock_context
 
 
 def test_update_and_delete_dispatch(events: dict[str, dict[str, Any]], mock_context: Mock) -> None:
-    resource = CustomResource(test_mode=True)
+    resource = CustomResource()
     calls: list[str] = []
 
     @resource.create
@@ -161,166 +163,156 @@ def test_update_and_delete_dispatch(events: dict[str, dict[str, Any]], mock_cont
     def on_delete(_e: dict[str, Any], _c: LambdaContext) -> None:
         calls.append("delete")
 
-    resource(events["Update"], mock_context)
-    resource(events["Delete"], mock_context)
+    resource.replay(events["Update"], mock_context)
+    resource.replay(events["Delete"], mock_context)
     assert calls == ["update", "delete"]
 
 
 def test_handler_return_value_becomes_data(events: dict[str, dict[str, Any]], mock_context: Mock) -> None:
-    resource = CustomResource(test_mode=True)
+    resource = CustomResource()
 
     @resource.create
     def on_create(_e: dict[str, Any], _c: LambdaContext) -> dict[str, Any]:
         return {"Endpoint": "https://x.example", "Token": "abc"}
 
-    resource(events["Create"], mock_context)
-    assert resource.last_response is not None
-    assert resource.last_response["Status"] == "SUCCESS"
-    assert resource.last_response["Data"] == {"Endpoint": "https://x.example", "Token": "abc"}
+    replay = resource.replay(events["Create"], mock_context)
+    assert_success(replay, data={"Endpoint": "https://x.example", "Token": "abc"})
 
 
 def test_handler_returning_none_yields_empty_data(events: dict[str, dict[str, Any]], mock_context: Mock) -> None:
-    resource = CustomResource(test_mode=True)
+    resource = CustomResource()
 
     @resource.create
     def on_create(_e: dict[str, Any], _c: LambdaContext) -> None:
         return None
 
-    resource(events["Create"], mock_context)
-    assert resource.last_response is not None
-    assert resource.last_response["Data"] == {}
+    replay = resource.replay(events["Create"], mock_context)
+    assert_success(replay, data={})
 
 
 def test_unknown_request_type_yields_failed(events: dict[str, dict[str, Any]], mock_context: Mock) -> None:
-    resource = CustomResource(test_mode=True)
+    resource = CustomResource()
     bogus = events["Create"]
     bogus["RequestType"] = "FooBar"
-    resource(bogus, mock_context)
-    assert resource.last_response is not None
-    assert resource.last_response["Status"] == "FAILED"
-    assert "FooBar" in resource.last_response["Reason"]
+    replay = resource.replay(bogus, mock_context)
+    assert_failed(replay, reason_contains="FooBar")
 
 
 def test_missing_handler_for_known_request_type_yields_failed(
-    events: dict[str, dict[str, Any]], mock_context: Mock
+    events: dict[str, dict[str, Any]],
+    mock_context: Mock,
 ) -> None:
-    resource = CustomResource(test_mode=True)
+    resource = CustomResource()
     # No handlers registered.
-    resource(events["Delete"], mock_context)
-    assert resource.last_response is not None
-    assert resource.last_response["Status"] == "FAILED"
-    assert "Delete" in resource.last_response["Reason"]
+    replay = resource.replay(events["Delete"], mock_context)
+    assert_failed(replay, reason_contains="Delete")
 
 
 # ---- Exception handling --------------------------------------------------
 
 
 def test_handler_exception_is_reported_as_failed(events: dict[str, dict[str, Any]], mock_context: Mock) -> None:
-    resource = CustomResource(test_mode=True)
+    resource = CustomResource()
 
     @resource.create
     def on_create(_e: dict[str, Any], _c: LambdaContext) -> None:
-        raise RuntimeError("policy not found")
+        msg = "policy not found"
+        raise RuntimeError(msg)
 
-    resource(events["Create"], mock_context)
-    assert resource.last_response is not None
-    assert resource.last_response["Status"] == "FAILED"
-    assert "policy not found" in resource.last_response["Reason"]
+    replay = resource.replay(events["Create"], mock_context)
+    assert_failed(replay, reason_contains="policy not found")
 
 
 def test_handler_exception_with_empty_message_uses_class_name(
-    events: dict[str, dict[str, Any]], mock_context: Mock
+    events: dict[str, dict[str, Any]],
+    mock_context: Mock,
 ) -> None:
-    resource = CustomResource(test_mode=True)
+    resource = CustomResource()
 
     @resource.create
     def on_create(_e: dict[str, Any], _c: LambdaContext) -> None:
         raise RuntimeError
 
-    resource(events["Create"], mock_context)
-    assert resource.last_response is not None
-    assert resource.last_response["Reason"] == "RuntimeError"
+    replay = resource.replay(events["Create"], mock_context)
+    assert replay.reason == "RuntimeError"
 
 
 # ---- PhysicalResourceId semantics ---------------------------------------
 
 
 def test_create_default_physical_resource_id_is_generated(
-    events: dict[str, dict[str, Any]], mock_context: Mock
+    events: dict[str, dict[str, Any]],
+    mock_context: Mock,
 ) -> None:
-    resource = CustomResource(test_mode=True)
+    resource = CustomResource()
 
     @resource.create
     def on_create(_e: dict[str, Any], _c: LambdaContext) -> None:
         return None
 
-    resource(events["Create"], mock_context)
-    assert resource.last_response is not None
-    pid = resource.last_response["PhysicalResourceId"]
-    assert pid
-    assert "TestResource" in pid
+    replay = resource.replay(events["Create"], mock_context)
+    assert replay.physical_resource_id is not None
+    assert "TestResource" in replay.physical_resource_id
 
 
 def test_update_echoes_existing_physical_resource_id(events: dict[str, dict[str, Any]], mock_context: Mock) -> None:
-    resource = CustomResource(test_mode=True)
+    resource = CustomResource()
 
     @resource.update
     def on_update(_e: dict[str, Any], _c: LambdaContext) -> None:
         return None
 
-    resource(events["Update"], mock_context)
-    assert resource.last_response is not None
-    assert resource.last_response["PhysicalResourceId"] == events["Update"]["PhysicalResourceId"]
+    replay = resource.replay(events["Update"], mock_context)
+    assert replay.physical_resource_id == events["Update"]["PhysicalResourceId"]
 
 
 def test_update_overrides_physical_resource_id_for_replacement(
-    events: dict[str, dict[str, Any]], mock_context: Mock
+    events: dict[str, dict[str, Any]],
+    mock_context: Mock,
 ) -> None:
-    resource = CustomResource(test_mode=True)
+    resource = CustomResource()
 
     @resource.update
     def on_update(_e: dict[str, Any], _c: LambdaContext) -> None:
         resource.physical_resource_id = "new-id-replaced"
 
-    resource(events["Update"], mock_context)
-    assert resource.last_response is not None
-    assert resource.last_response["PhysicalResourceId"] == "new-id-replaced"
+    replay = resource.replay(events["Update"], mock_context)
+    assert replay.physical_resource_id == "new-id-replaced"
 
 
 def test_delete_echoes_existing_physical_resource_id(events: dict[str, dict[str, Any]], mock_context: Mock) -> None:
-    resource = CustomResource(test_mode=True)
+    resource = CustomResource()
 
     @resource.delete
     def on_delete(_e: dict[str, Any], _c: LambdaContext) -> None:
         return None
 
-    resource(events["Delete"], mock_context)
-    assert resource.last_response is not None
-    assert resource.last_response["PhysicalResourceId"] == events["Delete"]["PhysicalResourceId"]
+    replay = resource.replay(events["Delete"], mock_context)
+    assert replay.physical_resource_id == events["Delete"]["PhysicalResourceId"]
 
 
 def test_no_echo_default_omitted(events: dict[str, dict[str, Any]], mock_context: Mock) -> None:
-    resource = CustomResource(test_mode=True)
+    resource = CustomResource()
 
     @resource.create
     def on_create(_e: dict[str, Any], _c: LambdaContext) -> None:
         return None
 
-    resource(events["Create"], mock_context)
-    assert resource.last_response is not None
-    assert "NoEcho" not in resource.last_response
+    replay = resource.replay(events["Create"], mock_context)
+    assert replay.no_echo is False
+    assert "NoEcho" not in replay.payload
 
 
 def test_no_echo_can_be_set_from_handler(events: dict[str, dict[str, Any]], mock_context: Mock) -> None:
-    resource = CustomResource(test_mode=True)
+    resource = CustomResource()
 
     @resource.create
     def on_create(_e: dict[str, Any], _c: LambdaContext) -> None:
         resource.no_echo = True
 
-    resource(events["Create"], mock_context)
-    assert resource.last_response is not None
-    assert resource.last_response["NoEcho"] is True
+    replay = resource.replay(events["Create"], mock_context)
+    assert replay.no_echo is True
+    assert replay.payload["NoEcho"] is True
 
 
 # ---- Init failure (#7 / #67) --------------------------------------------
@@ -328,57 +320,22 @@ def test_no_echo_can_be_set_from_handler(events: dict[str, dict[str, Any]], mock
 
 def test_init_failure_short_circuits_to_failed_with_pid(events: dict[str, dict[str, Any]], mock_context: Mock) -> None:
     """Issue #7/#67: init_failure must produce a usable PhysicalResourceId
-    so CloudFormation can roll back, not get stuck in ROLLBACK_FAILED."""
-    resource = CustomResource(test_mode=True)
+    so CloudFormation can roll back, not get stuck in ROLLBACK_FAILED.
+    """
+    resource = CustomResource()
     resource.init_failure(RuntimeError("boom in cold start"))
 
-    resource(events["Create"], mock_context)
-    assert resource.last_response is not None
-    assert resource.last_response["Status"] == "FAILED"
-    assert "boom in cold start" in resource.last_response["Reason"]
-    assert resource.last_response["PhysicalResourceId"]
+    replay = resource.replay(events["Create"], mock_context)
+    assert_failed(replay, reason_contains="boom in cold start")
+    assert replay.physical_resource_id
 
 
 def test_init_failure_for_update_echoes_existing_pid(events: dict[str, dict[str, Any]], mock_context: Mock) -> None:
-    resource = CustomResource(test_mode=True)
+    resource = CustomResource()
     resource.init_failure(RuntimeError("init blew up"))
 
-    resource(events["Update"], mock_context)
-    assert resource.last_response is not None
-    assert resource.last_response["PhysicalResourceId"] == events["Update"]["PhysicalResourceId"]
-
-
-# ---- Test mode ----------------------------------------------------------
-
-
-def test_test_mode_does_not_send_response(events: dict[str, dict[str, Any]], mock_context: Mock) -> None:
-    """Test mode captures the response on the instance instead of POSTing."""
-    resource = CustomResource(test_mode=True)
-
-    @resource.create
-    def on_create(_e: dict[str, Any], _c: LambdaContext) -> None:
-        return None
-
-    captured = resource(events["Create"], mock_context)
-    assert captured is not None
-    assert captured["Status"] == "SUCCESS"
-    assert captured is resource.last_response
-
-
-def test_test_mode_returns_none_outside_test_mode(
-    events: dict[str, dict[str, Any]],
-    mock_context: Mock,
-) -> None:
-    """Outside test mode, __call__ returns None (Lambda ignores return values)."""
-    resource = CustomResource(test_mode=True)
-
-    @resource.create
-    def on_create(_e: dict[str, Any], _c: LambdaContext) -> None:
-        return None
-
-    # Even in test_mode we still get the response back; explicitly verify the
-    # falsey-check semantics for paranoid tests.
-    assert resource(events["Create"], mock_context) is not None
+    replay = resource.replay(events["Update"], mock_context)
+    assert replay.physical_resource_id == events["Update"]["PhysicalResourceId"]
 
 
 # ---- log_level acceptance (#66) ------------------------------------------
@@ -390,7 +347,7 @@ def test_test_mode_returns_none_outside_test_mode(
 )
 def test_log_level_constructor_accepts_str_int_or_none(log_level: int | str | None) -> None:
     """Issue #66: log_level should accept int and str (and None to leave alone)."""
-    CustomResource(test_mode=True, log_level=log_level)
+    CustomResource(log_level=log_level)
 
 
 # ---- Internal helpers ----------------------------------------------------

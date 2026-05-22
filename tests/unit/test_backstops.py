@@ -127,25 +127,3 @@ def test_safe_teardown_swallows_teardown_error(
     ):
         # Should not raise:
         resource(poll_event, mock_context)
-
-
-def test_safe_teardown_skipped_in_test_mode(
-    events: dict[str, dict[str, Any]],
-    mock_context: Mock,
-) -> None:
-    """In test_mode, no teardown is attempted (we never set up either)."""
-    poll_event = events["Create"]
-    poll_event[EVENT_MARKER_POLL] = True
-    poll_event[EVENT_MARKER_RULE] = "arn:aws:events:us-east-1:123:rule/my-rule"
-    poll_event[EVENT_MARKER_PERMISSION] = "Sid"
-
-    resource = CustomResource(test_mode=True)
-
-    @resource.poll_create
-    def on_poll(_e: dict[str, Any], _c: LambdaContext) -> dict[str, Any]:
-        return {"done": True}
-
-    with patch("cfn_handler.resource.teardown_polling") as teardown:
-        resource(poll_event, mock_context)
-
-    teardown.assert_not_called()
