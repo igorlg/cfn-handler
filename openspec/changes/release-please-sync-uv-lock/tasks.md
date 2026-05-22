@@ -60,19 +60,19 @@ be dropped.
 
 ## 9. Cloud CI on the PR
 
-- [ ] 9.1 Verify `secure-workflows.yml` re-validates SHA-pins and reports SUCCESS (no SHA changes in this PR)
-- [ ] 9.2 Verify `ci.yml` matrix + lint pass under the new `--locked` install (proves the catch-up worked end-to-end)
-- [ ] 9.3 Confirm `examples-lint.yml` does not trigger (no examples changes); not required for merge anyway
-- [ ] 9.4 Verify `analyze (python)` and `review dependencies` complete
+- [x] 9.1 Verify `secure-workflows.yml` re-validates SHA-pins and reports SUCCESS (no SHA changes in this PR)
+- [x] 9.2 Verify `ci.yml` matrix + lint pass under the new `--locked` install (proves the catch-up worked end-to-end). All 10 matrix entries (5 Python × 2 architectures) pass.
+- [x] 9.3 Confirm `examples-lint.yml` does not trigger (no examples changes); not required for merge anyway. **Note**: actually triggered on this PR (the workflow has no path filter on PRs that don't touch examples — it always runs and reports green when there's nothing to lint). Reported `pass` regardless.
+- [x] 9.4 Verify `analyze (python)` and `review dependencies` complete. **Note**: the first run of `review dependencies` failed because `release-please` was declared under `dependencies` (which the action treats as runtime-scoped). Fixed in commit `b44032b` by moving it to `devDependencies`; second run passed.
 
 ## 10. Merge + first post-merge release
 
-- [ ] 10.1 Squash-merge with title `ci(release): sync uv.lock from release-please and flip CI to --locked`. The `ci:` prefix produces no version bump
-- [ ] 10.2 The merge does NOT itself trigger a release. The next `feat:`/`fix:` merge will be the first to exercise the `extra-files` behaviour. Watch that release-please run end-to-end:
+- [x] 10.1 Squash-merge with title `ci(release): sync uv.lock from release-please and flip CI to --locked`. The `ci:` prefix produces no version bump
+- [ ] 10.2 **Deferred — blocked on the next `feat:`/`fix:` merge.** This change is a `ci:` commit, so release-please will not open a release PR purely from this merge. The first post-merge `feat:`/`fix:` will be the first to exercise the `extra-files` behaviour. Watch that release-please run end-to-end:
   - The release PR diff includes the `uv.lock` self-version line (`cfn-handler` `[[package]]` block, `version = "X.Y.Z"`)
   - Squash-merging the release PR triggers the full downstream pipeline AND the post-merge `ci.yml` on `main` passes under `--locked` (proves the source-of-drift fix is correct)
 
 ## 11. Archive
 
-- [ ] 11.1 After step 10.2 confirms in production, run `openspec archive release-please-sync-uv-lock`
-- [ ] 11.2 Verify the MODIFIED requirement merges into `openspec/specs/ci-infrastructure/spec.md` correctly (replaces the old `--frozen` requirement)
+- [ ] 11.1 **Deferred — blocked on 10.2.** After step 10.2 confirms in production, run `openspec archive release-please-sync-uv-lock`
+- [ ] 11.2 **Deferred — blocked on 10.2.** Verify the MODIFIED requirement merges into `openspec/specs/ci-infrastructure/spec.md` correctly (replaces the old `--frozen` requirement)
