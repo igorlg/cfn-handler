@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.0](https://github.com/igorlg/cfn-handler/compare/v1.2.0...v1.3.0) (2026-05-22)
+
+
+### Features
+
+* **testing:** add cfn_handler.testing module with replay() and helpers ([#24](https://github.com/igorlg/cfn-handler/issues/24)) ([f0f9507](https://github.com/igorlg/cfn-handler/commit/f0f950741e0e95505436e5191e16567131366cdf))
+
 ## [1.2.0](https://github.com/igorlg/cfn-handler/compare/v1.1.1...v1.2.0) (2026-05-21)
 
 
