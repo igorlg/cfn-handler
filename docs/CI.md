@@ -276,25 +276,49 @@ SHAs** — bumping `pypa/gh-action-pypi-publish` is fine. It depends on the
 workflow filename, which is why renaming `release.yml` requires
 re-creating the binding on PyPI first.
 
-### Lockfile drift and `--frozen`
+### Lockfile sync via release-please
 
 `release-please-action` bumps `version` in `pyproject.toml` (and
-`.release-please-manifest.json`) but **cannot** also run `uv lock` to
-update `uv.lock`. Under `uv sync --locked`, that drift would break every
-post-merge CI run on `main` immediately after a release-please merge.
+`.release-please-manifest.json`) on every release PR. It is also
+configured — via the `extra-files` block in
+`release-please-config.json` — to update the `cfn-handler` self-version
+entry in `uv.lock` in lockstep:
 
-CI uses `uv sync --frozen` instead:
+```json
+"extra-files": [
+  {
+    "type": "toml",
+    "path": "uv.lock",
+    "jsonpath": "$.package[?(@.name.value=='cfn-handler')].version"
+  }
+]
+```
+
+The jsonpath uses `@.name.value` rather than `@.name`. Release-please's
+TOML parser exposes string nodes as `{value, kind}` objects rather
+than bare strings, so the bare `@.name=='cfn-handler'` form does not
+match. Tracked upstream as
+[googleapis/release-please#2455][issue-2455] (the bug);
+[#2561][issue-2561] (feature request to make this native);
+[#2693][pr-2693] (proposed fix that would let us drop `.value`).
+
+[issue-2455]: https://github.com/googleapis/release-please/issues/2455
+[issue-2561]: https://github.com/googleapis/release-please/issues/2561
+[pr-2693]: https://github.com/googleapis/release-please/pull/2693
+
+CI uses `uv sync --locked`:
 
 ```yaml
 - name: Install dependencies
-  run: uv sync --frozen --only-group test
+  run: uv sync --locked --only-group test
 ```
 
-`--frozen` installs exactly the dependency versions recorded in
-`uv.lock`; only the local project's own version is read from the current
-`pyproject.toml`. The trade-off: a contributor adding a runtime
-dependency to `pyproject.toml` without running `uv lock` will not be
-caught by CI — see [Lockfile policy in CONTRIBUTING.md](../.github/CONTRIBUTING.md#lockfile-uvlock).
+`--locked` validates that `pyproject.toml` and `uv.lock` agree before
+installing. Because release-please now keeps both files in sync, post-
+merge CI on `main` is no longer broken by release commits. The
+secondary benefit: a contributor who edits `pyproject.toml`
+dependencies without running `uv lock` is caught by CI immediately —
+see [Lockfile policy in CONTRIBUTING.md](../.github/CONTRIBUTING.md#lockfile-uvlock).
 
 ### Recovery from a failed publish
 
@@ -670,6 +694,13 @@ on bot-authored branches — so the failure didn't surface pre-merge.
 its release-please token via a dedicated GitHub App; see
 [How release-please PRs trigger required checks](#how-release-please-prs-trigger-required-checks).)
 
+**Status: resolved.** Release-please is now configured to update
+`uv.lock`'s self-version entry alongside `pyproject.toml` via
+`extra-files` in `release-please-config.json`; CI has been moved
+back from `uv sync --frozen` to `uv sync --locked`. Both files
+move together on every release; contributor relock omissions are
+now caught by CI. See [Lockfile sync via release-please](#lockfile-sync-via-release-please).
+
 ### What we changed
 
 1. Repinned `pypa/gh-action-pypi-publish` to its commit SHA.
@@ -692,10 +723,12 @@ direct, side-effect-free check of exactly the bug class that broke us
 effects on the repo).
 
 The `--locked` failure would have surfaced post-merge CI on `main`
-either way, but CONTRIBUTING.md's lockfile-policy section now warns
-contributors to manually `uv lock` after dependency edits. The release-
-please case is unrecoverable without manual reset, which is the failure
-mode this postmortem describes.
+either way. CONTRIBUTING.md's lockfile-policy section warns
+contributors to manually `uv lock` after dependency edits, and CI under
+`--locked` now catches the omission automatically (see
+[Lockfile sync via release-please](#lockfile-sync-via-release-please)).
+The release-please case is unrecoverable without manual reset, which is
+the failure mode this postmortem describes.
 
 ---
 

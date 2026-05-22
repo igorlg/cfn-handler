@@ -56,3 +56,7 @@ scratch/
 # act (local GH Actions runner)
 .actrc.local
 .act-cache/
+
+# Node (only used by tests/release-please/ for local validation; the lockfile
+# is committed for reproducibility, the modules are not).
+node_modules/

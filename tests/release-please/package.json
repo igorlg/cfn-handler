@@ -1,0 +1,12 @@
+{
+  "private": true,
+  "name": "cfn-handler-release-please-validator",
+  "version": "0.0.0",
+  "description": "Local validator for the release-please uv.lock updater. See README.md.",
+  "scripts": {
+    "validate": "node validate-uv-lock-updater.js"
+  },
+  "devDependencies": {
+    "release-please": "17.3.0"
+  }
+}

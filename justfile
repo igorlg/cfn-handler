@@ -114,9 +114,9 @@ test-matrix-arm64: _check-act
 #
 # Sequential, fail-fast, no side effects. Skipped: dependency-review.yml
 # (needs PR context act can't synthesize). Requires `act`, `gh` (authenticated),
-# and `docker`.
+# `docker`, and `npm` (for the release-please validator; ships in the Nix flake).
 #
-# Steps (each on a fresh container):
+# Steps (each on a fresh container unless noted):
 #   1. secure-workflows.yml — re-validate SHA pinning of every action
 #      (~5s). Catches tag-pinned bumps.
 #   2. Docker action manifest probe — for every Docker-based action used
@@ -126,13 +126,21 @@ test-matrix-arm64: _check-act
 #      release failure) without invoking release.yml — which would
 #      have real side effects on the repo (release-please-action
 #      authenticated as the user could open or update real release PRs).
-#   3a. ci.yml `test` matrix — amd64 + arm64 × 5 Python versions (~3-5 min).
-#   3b. ci.yml `lint` job — ruff, ruff-format, mypy strict, pyright strict
+#   3. release-please uv.lock validator — runs the local Node validator
+#      that loads release-please's GenericToml updater and exercises it
+#      against our uv.lock + the jsonpath in release-please-config.json
+#      (~5s). Catches: configured jsonpath stops matching the cfn-handler
+#      entry; release-please starts re-serialising uv.lock (whole-file
+#      rewrites instead of surgical edits); upstream PR #2693 lands and
+#      the .value workaround can be dropped. Runs locally, no network
+#      after the one-time `npm ci`.
+#   4a. ci.yml `test` matrix — amd64 + arm64 × 5 Python versions (~3-5 min).
+#   4b. ci.yml `lint` job — ruff, ruff-format, mypy strict, pyright strict
 #       (~30s).
-#   3c. examples-lint.yml — cfn-lint over examples/**/template.yaml (~30s).
-#   4. codeql.yml — Python security-and-quality scan (~1-8 min, slower
+#   4c. examples-lint.yml — cfn-lint over examples/**/template.yaml (~30s).
+#   5. codeql.yml — Python security-and-quality scan (~1-8 min, slower
 #      on first run while CodeQL bundle downloads).
-gha-pre-release: _check-act _check-gh-token _check-docker
+gha-pre-release: _check-act _check-gh-token _check-docker _check-npm
     #!/usr/bin/env bash
     set -uo pipefail
 
@@ -141,13 +149,13 @@ gha-pre-release: _check-act _check-gh-token _check-docker
       --secret GITHUB_TOKEN="$(gh auth token)"
     )
 
-    echo "==> [1/6] secure-workflows.yml — SHA-pin enforcement"
+    echo "==> [1/7] secure-workflows.yml — SHA-pin enforcement"
     act pull_request -W .github/workflows/secure-workflows.yml "${common_flags[@]}" \
         --action-cache-path /tmp/act-cache-secure-workflows \
         || { echo; echo "FAIL: secure-workflows.yml"; exit 1; }
 
     echo
-    echo "==> [2/6] Docker action manifest probe"
+    echo "==> [2/7] Docker action manifest probe"
     # Match `uses: <owner>/<repo>@<sha>` in every workflow file, then for any
     # action that publishes a Docker image at ghcr.io/<owner>/<repo>, verify
     # the SHA resolves to a real image. Currently this is just
@@ -189,24 +197,36 @@ gha-pre-release: _check-act _check-gh-token _check-docker
     echo "  (all Docker action images resolve)"
 
     echo
-    echo "==> [3a/6] ci.yml — test matrix (amd64 + arm64 in parallel)"
+    echo "==> [3/7] release-please uv.lock validator"
+    # Loads release-please's GenericToml updater locally and exercises it
+    # against the real uv.lock + the jsonpath in release-please-config.json.
+    # `npm ci` is strict-lockfile (matches our uv --locked posture); install
+    # is ~3s on a small dep tree. See tests/release-please/README.md.
+    (
+      cd tests/release-please \
+        && npm ci --silent --no-audit --no-fund \
+        && node validate-uv-lock-updater.js
+    ) || { echo; echo "FAIL: release-please uv.lock validator"; exit 1; }
+
+    echo
+    echo "==> [4a/7] ci.yml — test matrix (amd64 + arm64 in parallel)"
     just test-matrix \
         || { echo; echo "FAIL: ci.yml test matrix"; exit 1; }
 
     echo
-    echo "==> [3b/6] ci.yml — lint+typecheck job"
+    echo "==> [4b/7] ci.yml — lint+typecheck job"
     act pull_request -W .github/workflows/ci.yml "${common_flags[@]}" --job lint \
         --action-cache-path /tmp/act-cache-lint \
         || { echo; echo "FAIL: ci.yml lint job"; exit 1; }
 
     echo
-    echo "==> [3c/6] examples-lint.yml — cfn-lint over examples"
+    echo "==> [4c/7] examples-lint.yml — cfn-lint over examples"
     act pull_request -W .github/workflows/examples-lint.yml "${common_flags[@]}" \
         --action-cache-path /tmp/act-cache-examples-lint \
         || { echo; echo "FAIL: examples-lint.yml"; exit 1; }
 
     echo
-    echo "==> [4/6] codeql.yml — Python security analysis"
+    echo "==> [5/7] codeql.yml — Python security analysis"
     act push -W .github/workflows/codeql.yml "${common_flags[@]}" \
         --action-cache-path /tmp/act-cache-codeql \
         || { echo; echo "FAIL: codeql.yml"; exit 1; }
@@ -250,3 +270,6 @@ _check-gh-token:
 _check-docker:
     @command -v docker >/dev/null || { echo 'error: docker not installed. Install Docker Desktop, OrbStack, or Colima.'; exit 1; }
     @docker info >/dev/null 2>&1 || { echo 'error: docker daemon not running.'; exit 1; }
+
+_check-npm:
+    @command -v npm >/dev/null || { echo 'error: npm not installed. Use the Nix dev shell (npm ships via nodejs_20) or install Node 20+.'; exit 1; }

@@ -149,13 +149,14 @@ public API or the spec'd capabilities, use OpenSpec.
 versions. After **any** change to `pyproject.toml` dependencies, run
 `uv lock` and commit the resulting `uv.lock` in the same PR.
 
-CI installs with `uv sync --frozen` (not `--locked`). This is intentional:
-release-please bumps `version` in `pyproject.toml` for releases but cannot
-also run `uv lock`, so the local project's version drifts in `uv.lock`
-between releases. `--frozen` tolerates that single drift while still
-pinning every dependency version to the lockfile. **It does not catch a
-contributor forgetting to run `uv lock`** after adding a dep — please do
-so manually.
+CI installs with `uv sync --locked` (not `--frozen`). Release-please is
+configured to update `uv.lock`'s `cfn-handler` self-version entry
+alongside `pyproject.toml` on every release (see the `extra-files`
+block in `release-please-config.json`), so the historical drift between
+the two files is fixed at the source. **`--locked` therefore catches a
+contributor forgetting to run `uv lock` after editing `pyproject.toml`
+deps**, surfacing the diagnostic in CI immediately rather than at a
+later maintenance step.
 
 ## Reporting security issues
 

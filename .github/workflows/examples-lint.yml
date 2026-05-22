@@ -56,7 +56,7 @@ jobs:
           cache-suffix: examples-lint
 
       - name: Install lint dependencies
-        run: uv sync --frozen --only-group lint
+        run: uv sync --locked --only-group lint
 
       - name: cfn-lint over examples
         run: uv run cfn-lint examples/**/template.yaml
