@@ -61,6 +61,8 @@ Every workflow file SHALL declare a top-level `permissions: contents: read` (or 
 
 Releases SHALL be driven entirely by Conventional Commits parsed by `release-please-action`. Merging the auto-generated release PR with the title `chore(main): release X.Y.Z` SHALL trigger a chain of jobs in `release.yml` that: tag `vX.Y.Z`; build wheel and sdist; upload artifacts to a GitHub Release; and publish to PyPI via OIDC Trusted Publishing in the `pypi` environment. The Trusted Publisher binding SHALL be parameterised by repository, workflow filename (`release.yml`), and environment name (`pypi`); no PyPI API token is held anywhere.
 
+`release-please-action` SHALL authenticate using a short-lived installation token minted from a dedicated GitHub App (registered to the repository owner, installed only on this repository, granted exactly `Contents: write` and `Pull requests: write` permissions), NOT the default `GITHUB_TOKEN`. The minting step SHALL run before `release-please-action` and pass the resulting token via the action's `token` input. This requirement exists because GitHub blocks PRs opened with the default `GITHUB_TOKEN` from triggering downstream workflow runs (anti-recursion); without an App-minted token, required status checks on the release PR never fire and the PR cannot be merged. The App's numeric ID SHALL be stored as a repository **variable** (`vars.RELEASE_PLEASE_APP_ID`, non-sensitive); its private key SHALL be stored as a repository **secret** (`secrets.RELEASE_PLEASE_PRIVATE_KEY`).
+
 #### Scenario: A `feat:` commit lands on main
 - **WHEN** a contributor merges a PR with title `feat: <description>` to `main`
 - **THEN** `release-please-action` opens (or updates) a release PR proposing a minor version bump
@@ -73,17 +75,65 @@ Releases SHALL be driven entirely by Conventional Commits parsed by `release-ple
 - **WHEN** the publisher binding does not match (wrong workflow filename, wrong environment, wrong repo)
 - **THEN** `pypa/gh-action-pypi-publish` fails the OIDC exchange and the publish step errors with a 403 from PyPI; the wheel/sdist artifacts on the GitHub Release are unaffected
 
-### Requirement: Lockfile drift policy: `uv sync --frozen` in CI; manual `uv lock` after dependency edits
+#### Scenario: Release PR opened with the App's token triggers required checks
+- **WHEN** `release-please-action` opens or updates a release PR using the GitHub App installation token
+- **THEN** the four required status checks on `main`'s branch protection (`CI passed`, `analyze (python)`, `review dependencies`, `ensure SHA-pinned actions`) all run automatically against the release PR's head, with no manual unblocks needed
 
-CI SHALL install dependencies via `uv sync --frozen --only-group <group>` rather than `--locked`. This is required because `release-please-action` bumps the local project's `version` in `pyproject.toml` but cannot also run `uv lock` to refresh the corresponding entry in `uv.lock`; under `--locked`, that drift breaks every CI run on `main` immediately after a release-please merge. `--frozen` still installs exactly the dependency versions recorded in `uv.lock`; only the local project's own version is read from the current `pyproject.toml`. Contributors SHALL run `uv lock` manually after editing `pyproject.toml` dependencies and commit the resulting `uv.lock` in the same PR.
+#### Scenario: App credential is missing or invalid
+- **WHEN** `vars.RELEASE_PLEASE_APP_ID` is unset, or `secrets.RELEASE_PLEASE_PRIVATE_KEY` is missing or expired
+- **THEN** the `Mint App installation token` step fails before `release-please-action` runs; the release pipeline halts loudly rather than silently falling back to `GITHUB_TOKEN` (which would produce non-triggering PRs)
+
+### Requirement: Lockfile drift policy: release-please syncs `uv.lock`; CI uses `--locked`
+
+Releases SHALL keep the project's self-version entry in `uv.lock`
+synchronised with `pyproject.toml`. `release-please-config.json`
+SHALL list `uv.lock` as an `extra-files` entry of type `toml`,
+matching the project's package via the jsonpath
+`$.package[?(@.name.value=='cfn-handler')].version`. The `.value`
+accessor descends into release-please's TOML AST node shape (which
+exposes string nodes as `{value, kind}` rather than bare strings)
+and is required as a workaround for
+[googleapis/release-please#2455](https://github.com/googleapis/release-please/issues/2455);
+the upstream tracker is
+[#2561](https://github.com/googleapis/release-please/issues/2561) and
+the proposed fix is PR
+[#2693](https://github.com/googleapis/release-please/pull/2693).
+
+CI SHALL install dependencies via `uv sync --locked --only-group <group>`
+in `ci.yml` and `examples-lint.yml`. Local development via `.envrc`
+SHALL also use `--locked` so contributors see the same diagnostics
+locally that CI produces. With release-please syncing `uv.lock`'s
+self-version entry, the lockfile and `pyproject.toml` move in
+lockstep on every release; with `--locked` enforced, contributors who
+edit `pyproject.toml` dependencies without running `uv lock` are
+caught immediately by CI rather than discovered at a later
+maintenance step.
 
 #### Scenario: Post-release CI on main
-- **WHEN** the release PR is merged, bumping `pyproject.toml` from `0.0.0` to `1.0.0` without an accompanying `uv.lock` update
-- **THEN** the next `ci.yml` run on `main` succeeds, because `--frozen` does not check pyproject/lockfile consistency on the local project's own version
+
+- **WHEN** the release PR is merged, bumping `pyproject.toml` from
+  `X.Y.Z` to `X.Y.Z+1` *and* the corresponding `[[package]] name =
+  "cfn-handler"` `version` in `uv.lock` (because the `extra-files`
+  entry directs release-please to update both)
+- **THEN** the next `ci.yml` run on `main` succeeds because `uv sync
+  --locked` finds `pyproject.toml` and `uv.lock` consistent
 
 #### Scenario: A contributor adds a new runtime dependency without re-locking
-- **WHEN** a PR adds a dependency to `pyproject.toml` but does not include the resulting `uv.lock` change
-- **THEN** CI does not catch this (a known tradeoff of `--frozen`); the contributor is responsible per `.github/CONTRIBUTING.md`. The PR review process is the gate.
+
+- **WHEN** a PR adds a dependency to `pyproject.toml` but does not
+  include the resulting `uv.lock` change
+- **THEN** `uv sync --locked` fails the PR's CI run with
+  `The lockfile at uv.lock needs to be updated, but --locked was
+  provided`, surfacing the missed re-lock before review
+
+#### Scenario: release-please's TOML AST shape regresses upstream
+
+- **WHEN** a future release-please bump changes the parser such that
+  the `.value` accessor no longer matches the cfn-handler package
+- **THEN** the next release PR ships with `uv.lock`'s self-version
+  unchanged; the post-merge `ci.yml` run on `main` fails under
+  `--locked` and the failure is loud, fast, and bisectable to the
+  release PR commit
 
 ### Requirement: Codecov upload from a single matrix entry
 
