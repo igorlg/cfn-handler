@@ -236,33 +236,21 @@
       during pytest plugin collection (before `--cov` instrumentation
       attaches), making module-level lines look unhit. Documented in
       the recipe comment.
-- [ ] 12.2 Run `just gha-pre-release` to replay every CI gating
-      workflow locally. All green required before merge. **Defer to
-      pre-merge step.**
+- [x] 12.2 Run `just gha-pre-release` to replay every CI gating
+      workflow locally. All green required before merge. **Done:
+      ran on the PR branch; CodeQL flagged as a false-failure under
+      act (post-analysis REST API call to a synthesized run id 404s),
+      fixed by removing CodeQL from the recipe with rationale (commit
+      `5df0b1f`). Real GH Actions CodeQL on PR #24 passed.**
 - [x] 12.3 Verify the built wheel includes `cfn_handler/testing/`:
       `uv build && unzip -l dist/*.whl | grep testing`. Verified —
       9 files including `_internal/` modules and `py.typed`.
-- [ ] 12.4 Verify the conventional-commit message for the squash-merge
+- [x] 12.4 Verify the conventional-commit message for the squash-merge
       starts with `feat(testing):` so release-please bumps minor
-      (target: `1.3.0`). **Squash-merge commit message guidance:**
-      ```
-      feat(testing): add cfn_handler.testing module with replay() helpers
-
-      Adds the new `cfn_handler.testing` public surface:
-      - `CustomResource.replay(event, context=None)` — in-process dispatch
-        returning a structured `Replay` (no HTTP, no boto3).
-      - `Replay` frozen dataclass.
-      - `make_event` / `make_context` factories with safe defaults.
-      - `assert_success` / `assert_failed` / `assert_deferred` helpers.
-      - pytest fixtures (`cfn_create_event`, `cfn_update_event`,
-        `cfn_delete_event`, `cfn_lambda_context`) auto-discovered via
-        the `pytest11` entry point.
-
-      DEPRECATED: `CustomResource(test_mode=True)` and `last_response`
-      now emit a DeprecationWarning. They continue to work in v1.x;
-      removal scheduled for v2.0.
-      ```
-      **Defer to merge step.**
+      (target: `1.3.0`). **Done: PR #24 merged as
+      `feat(testing): add cfn_handler.testing module with replay() and helpers (#24)`
+      on commit `f0f9507`. release-please will open the v1.3.0
+      release PR on next workflow trigger.**
 
 ## 13. Validation
 
