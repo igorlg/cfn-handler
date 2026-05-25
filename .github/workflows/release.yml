@@ -41,7 +41,7 @@ jobs:
           app-id: ${{ vars.RELEASE_PLEASE_APP_ID }}
           private-key: ${{ secrets.RELEASE_PLEASE_PRIVATE_KEY }}
 
-      - uses: googleapis/release-please-action@5c625bfb5d1ff62eadeeb3772007f7f66fdcf071 # v4
+      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
         id: release
         with:
           config-file: release-please-config.json
@@ -78,7 +78,7 @@ jobs:
         run: uv build
 
       - name: Upload dist/ as workflow artifact
-        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: dist
           path: dist/
@@ -94,7 +94,7 @@ jobs:
       contents: write
     steps:
       - name: Download dist/ from build-artifacts
-        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: dist
           path: dist/
@@ -124,7 +124,7 @@ jobs:
       contents: read
     steps:
       - name: Download dist/ from build-artifacts
-        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: dist
           path: dist/
@@ -153,7 +153,7 @@ jobs:
       contents: write   # for `gh release upload`
     steps:
       - name: Download dist/ from build-artifacts
-        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: dist
           path: dist/
@@ -261,7 +261,7 @@ jobs:
           ls -la dist/
 
       - name: Configure AWS credentials via OIDC
-        uses: aws-actions/configure-aws-credentials@00943011d9042930efac3dcd3a170e4273319bc8 # v5.1.0
+        uses: aws-actions/configure-aws-credentials@d979d5b3a71173a29b74b5b88418bfda9437d885 # v6.1.1
         with:
           role-to-assume: ${{ secrets.LAYER_PUBLISHER_ROLE_ARN }}
           aws-region: ${{ matrix.region }}
@@ -336,7 +336,7 @@ jobs:
             '{region: $region, arn: $arn}' > "artifacts/arn-${REGION}.json"
 
       - name: Upload per-region ARN artifact
-        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: layer-arn-${{ matrix.region }}
           path: artifacts/arn-${{ matrix.region }}.json
@@ -357,7 +357,7 @@ jobs:
           persist-credentials: false
 
       - name: Download all per-region ARN artifacts
-        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           path: artifacts/
           pattern: layer-arn-*
