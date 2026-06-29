@@ -34,7 +34,7 @@ jobs:
         runner: [ubuntu-24.04, ubuntu-24.04-arm]
         python: ['3.10', '3.11', '3.12', '3.13', '3.14']
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       # Workaround: under `act`, JS-action post steps run via `docker exec`
       # with a stripped PATH that doesn't include the acttoolcache dir where
@@ -50,7 +50,7 @@ jobs:
           node --version
 
       - name: Install uv with Python ${{ matrix.python }}
-        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
         with:
           python-version: ${{ matrix.python }}
           enable-cache: true
@@ -85,7 +85,7 @@ jobs:
 
       - name: Upload coverage to Codecov
         if: matrix.runner == 'ubuntu-24.04' && matrix.python == '3.12'
-        uses: codecov/codecov-action@e79a6962e0d4c0c17b229090214935d2e33f8354 # v6.0.1
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
         with:
           files: ./coverage.xml
           fail_ci_if_error: false
@@ -96,7 +96,7 @@ jobs:
     name: lint + typecheck
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: act compat — expose node on standard PATH
         if: env.ACT == 'true'
@@ -109,7 +109,7 @@ jobs:
           node --version
 
       - name: Install uv with Python 3.12
-        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
         with:
           python-version: '3.12'
           enable-cache: true
